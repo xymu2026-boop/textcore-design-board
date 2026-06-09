@@ -1,0 +1,336 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>文心 TextCore 设计稿看板</title>
+    <style>
+      :root {
+        --ink: #25221e;
+        --muted: #706a61;
+        --line: #e8e1d7;
+        --paper: #fbfaf7;
+        --surface: #ffffff;
+        --soft: #f3efe8;
+        --accent: #49685a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background: var(--paper);
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC",
+          "Microsoft YaHei", sans-serif;
+        line-height: 1.6;
+      }
+
+      header {
+        padding: 48px 24px 28px;
+        border-bottom: 1px solid var(--line);
+        background: linear-gradient(180deg, #fffdf9 0%, #f8f4ed 100%);
+      }
+
+      .wrap {
+        width: min(1120px, calc(100% - 32px));
+        margin: 0 auto;
+      }
+
+      .eyebrow {
+        color: var(--accent);
+        font-size: 14px;
+        letter-spacing: 0;
+        margin: 0 0 8px;
+      }
+
+      h1 {
+        margin: 0;
+        font-size: clamp(28px, 5vw, 48px);
+        line-height: 1.12;
+        font-weight: 720;
+      }
+
+      .intro {
+        max-width: 760px;
+        margin: 16px 0 0;
+        color: var(--muted);
+        font-size: 16px;
+      }
+
+      nav {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 24px;
+      }
+
+      nav a,
+      .open-link {
+        display: inline-flex;
+        align-items: center;
+        min-height: 36px;
+        padding: 7px 12px;
+        border: 1px solid var(--line);
+        border-radius: 6px;
+        color: var(--ink);
+        background: rgba(255, 255, 255, 0.7);
+        text-decoration: none;
+        font-size: 14px;
+      }
+
+      main {
+        padding: 28px 0 56px;
+      }
+
+      section {
+        margin-top: 34px;
+      }
+
+      h2 {
+        margin: 0 0 12px;
+        font-size: 24px;
+      }
+
+      .section-note {
+        max-width: 800px;
+        margin: 0 0 18px;
+        color: var(--muted);
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px;
+      }
+
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        overflow: hidden;
+      }
+
+      .card img {
+        display: block;
+        width: 100%;
+        height: auto;
+        background: var(--soft);
+      }
+
+      .card-body {
+        padding: 14px 14px 16px;
+        border-top: 1px solid var(--line);
+      }
+
+      .card h3 {
+        margin: 0 0 6px;
+        font-size: 17px;
+      }
+
+      .card p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .tag-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        margin-top: 12px;
+      }
+
+      .tag {
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: var(--soft);
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .notes {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .note {
+        padding: 16px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.72);
+      }
+
+      .note h3 {
+        margin: 0 0 8px;
+        font-size: 16px;
+      }
+
+      .note p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      footer {
+        padding: 28px 0;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      @media (max-width: 820px) {
+        header {
+          padding-top: 34px;
+        }
+
+        .grid,
+        .notes {
+          grid-template-columns: 1fr;
+        }
+
+        section {
+          margin-top: 28px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="wrap">
+        <p class="eyebrow">TextCore / 文心 · 设计讨论看板</p>
+        <h1>课堂转写稿整理工具的原型方向</h1>
+        <p class="intro">
+          这个页面集中展示目前的低保真与高保真设计稿，方便用手机远程查看、比较首页、结果页、历史列表和阅读工作台的方向。
+        </p>
+        <nav aria-label="页面导航">
+          <a href="#agy">AGY 设计稿</a>
+          <a href="#codex">Codex 低保真方向</a>
+          <a href="#compare">讨论重点</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section id="agy">
+        <h2>AGY 设计师方案</h2>
+        <p class="section-note">
+          这组图来自项目根目录下的设计稿，已整理到产品设计目录。包含首页线框、高保真首页、列表页和结果页方向。
+        </p>
+        <div class="grid">
+          <article class="card">
+            <a href="assets/designs/textcore_homepage_wireframe.png">
+              <img src="assets/designs/textcore_homepage_wireframe.png" alt="文心首页低保真线框图" />
+            </a>
+            <div class="card-body">
+              <h3>首页线框</h3>
+              <p>观察上传入口、工作台信息层级、最近课程和历史入口是否清楚。</p>
+              <div class="tag-row"><span class="tag">首页</span><span class="tag">低保真</span></div>
+            </div>
+          </article>
+
+          <article class="card">
+            <a href="assets/designs/textcore_homepage_hifi.png">
+              <img src="assets/designs/textcore_homepage_hifi.png" alt="文心首页高保真设计稿" />
+            </a>
+            <div class="card-body">
+              <h3>首页高保真</h3>
+              <p>观察整体气质是否符合“安静、干净、文档工作台、有一点东方文字气质”。</p>
+              <div class="tag-row"><span class="tag">首页</span><span class="tag">高保真</span></div>
+            </div>
+          </article>
+
+          <article class="card">
+            <a href="assets/designs/textcore_listpage_hifi.png">
+              <img src="assets/designs/textcore_listpage_hifi.png" alt="文心历史列表高保真设计稿" />
+            </a>
+            <div class="card-body">
+              <h3>历史列表页</h3>
+              <p>观察课程名、课型、状态、结果页入口是否足够直接，是否像轻工作台而非重后台。</p>
+              <div class="tag-row"><span class="tag">历史</span><span class="tag">课程记录</span></div>
+            </div>
+          </article>
+
+          <article class="card">
+            <a href="assets/designs/textcore_results_wireframe.png">
+              <img src="assets/designs/textcore_results_wireframe.png" alt="文心结果页低保真线框图" />
+            </a>
+            <div class="card-body">
+              <h3>结果页线框</h3>
+              <p>重点看阅读主栏、版本切换、知识卡片和作文素材的位置关系。</p>
+              <div class="tag-row"><span class="tag">结果页</span><span class="tag">低保真</span></div>
+            </div>
+          </article>
+
+          <article class="card">
+            <a href="assets/designs/textcore_results_hifi.png">
+              <img src="assets/designs/textcore_results_hifi.png" alt="文心结果页高保真设计稿" />
+            </a>
+            <div class="card-body">
+              <h3>结果页高保真</h3>
+              <p>重点判断长文阅读是否舒服，右侧卡片和素材是否干扰正文。</p>
+              <div class="tag-row"><span class="tag">结果页</span><span class="tag">阅读优先</span></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="codex">
+        <h2>Codex 低保真方向</h2>
+        <p class="section-note">
+          这组图是 Codex 生成的两个低保真方向，用于比较“轻工作台 + 阅读主栏”和“资料台 + 分屏检查”的差异。
+        </p>
+        <div class="grid">
+          <article class="card">
+            <a href="assets/designs/ig_0d2b373f7b274516016a282a3a1d208198919cfaf8b827bd2c.png">
+              <img src="assets/designs/ig_0d2b373f7b274516016a282a3a1d208198919cfaf8b827bd2c.png" alt="Codex 低保真方向一" />
+            </a>
+            <div class="card-body">
+              <h3>方向一：轻工作台 + 阅读主栏</h3>
+              <p>首页上传和历史平衡，结果页以学习整理版为主，右侧放卡片、素材和复核。</p>
+              <div class="tag-row"><span class="tag">推荐方向</span><span class="tag">阅读优先</span></div>
+            </div>
+          </article>
+
+          <article class="card">
+            <a href="assets/designs/ig_0d2b373f7b274516016a282b8bdcf08198825062cda1c2015d.png">
+              <img src="assets/designs/ig_0d2b373f7b274516016a282b8bdcf08198825062cda1c2015d.png" alt="Codex 低保真方向二" />
+            </a>
+            <div class="card-body">
+              <h3>方向二：资料台 + 分屏检查</h3>
+              <p>更偏检查和调试，原文与整理稿并排，适合早期验证 AI 处理效果。</p>
+              <div class="tag-row"><span class="tag">对照模式</span><span class="tag">检查优先</span></div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section id="compare">
+        <h2>手机讨论时先看这几件事</h2>
+        <div class="notes">
+          <article class="note">
+            <h3>首页像不像工作台</h3>
+            <p>上传入口不要太大，历史记录要能快速进入结果页。重点判断它是轻松的工具，还是变成了后台。</p>
+          </article>
+          <article class="note">
+            <h3>结果页能不能长时间阅读</h3>
+            <p>正文是主角。右侧卡片、作文素材和复核标记应该辅助阅读，而不是抢注意力。</p>
+          </article>
+          <article class="note">
+            <h3>原文对照放在哪里</h3>
+            <p>默认不显示原文，需要检查时再展开。早期可以保留强对照模式，方便看 AI 是否漏内容。</p>
+          </article>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="wrap">
+        文心 TextCore 设计稿看板 · 仅展示设计讨论材料，不包含原始课程 Word 素材。
+      </div>
+    </footer>
+  </body>
+</html>
