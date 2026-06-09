@@ -1,23 +1,23 @@
 const courses = [
   {
-    id: "lesson-7",
-    title: "五上寒假第七讲",
-    subtitle: "阅读理解 + 作文点评",
+    id: "sample-classical",
+    title: "五上寒假第三/四讲",
+    subtitle: "《偷钱》线索讲评 + 文言文《醉叟传》",
     teacher: "张老师",
-    type: "混合课",
+    type: "阅读 + 文言文",
     status: "已完成",
-    updated: "今天 15:20",
-    reviewCount: 5,
+    updated: "样例试处理",
+    reviewCount: 9,
   },
   {
-    id: "lesson-6",
-    title: "五上寒假第六讲",
-    subtitle: "文言文阅读训练",
-    teacher: "陈老师",
-    type: "文言文",
+    id: "sample-essay",
+    title: "五上寒假第七讲",
+    subtitle: "现代文阅读 + 作文点评",
+    teacher: "张老师",
+    type: "阅读作文",
     status: "已完成",
-    updated: "昨天 21:10",
-    reviewCount: 3,
+    updated: "样例试处理",
+    reviewCount: 7,
   },
   {
     id: "lesson-8",
@@ -40,6 +40,347 @@ const courses = [
     reviewCount: 0,
   },
 ];
+
+const lessonSamples = {
+  "sample-classical": {
+    title: "五上寒假第三/四讲",
+    subtitle: "《偷钱》线索讲评 + 文言文《醉叟传》",
+    teacher: "张老师",
+    type: "阅读 + 文言文",
+    sourceFile: "五上-人文综合涵养-寒假-第三讲-隐显-偷钱+第四讲-文言文-醉叟传1.docx",
+    stats: "357 段 / 约 3.43 万字",
+    reviewCount: 9,
+    summary: "本课前半讲吴祖光《偷钱》，重点分析明线、暗线、儿童犯错与家庭教育方式；后半进入袁宏道《醉叟传》，讲作者背景、人物传记写法和第一段字词翻译。该样例主要测试混合课切分、阅读讲评保留、文言文原文保护和疑似转写错误标记。",
+    rawExcerpt: `
+      <p>陈细影 00:00:09</p>
+      <p>今天进入第三讲，大主题叫“隐显”。在写作构思中，文章常常会设置线索。更复杂一点的文章，会有一条明线、一条暗线。</p>
+      <p>这篇《偷钱》很明显有明线和暗线，两条线索交织起来，构成文章结构。它背后涉及孩子犯错和成年人态度这个教育话题。</p>
+      <p>第四讲开始进入文言文部分。史传类文章选了明朝散文家袁宏道写的《醉叟传》，文章有难度，但内容很有趣。</p>
+      <p class="review-mark">[原文疑似转写：多处“罪首/最手/醉手”应复核为“醉叟”。]</p>
+    `,
+    versions: {
+      clean: `
+        <h2>一、《偷钱》：明线、暗线与犯错后的教育</h2>
+        <p>本讲先进入第三讲“隐显”。老师说明，文章的线索是贯穿全文、把前后内容关联起来的东西。稍复杂的文章常常有明线和暗线：明线是表面可见的事件发展，暗线是隐藏在事件背后的情感、观念或主题推进。</p>
+        <p>吴祖光的《偷钱》正适合观察这一点。文章表面写“我”小时候偷家里的钱，从偶然拿一小部分，到逐渐形成习惯，最后被母亲发现。这是明线。暗线则是一个孩子在犯错后的心理变化，以及父母、祖母如何处理错误。</p>
+        <div class="quote-block">
+          老师提醒：标题“偷钱”本身带有悬念，会让读者追问“谁偷钱、为什么偷、后来怎样”。这也是标题的吸引力。
+        </div>
+        <p>文章开头交代偷钱的背景：“时常和母亲要钱，又说不出个正经的用处”，这不是贫穷导致的偷窃，而是孩子想要用钱自由，却又不愿向大人解释。老师借此补充，童年并不总是轻松自由的，很多事情都要向大人交代。</p>
+        <p>第一次偷钱发生在清早，桌上放着一叠铜子，“我”见猎心喜，只拿了一小部分。这说明孩子一方面有欲望，一方面还有分寸和害怕。随后“略微有些不安”，但因为没人发现，侥幸心理逐渐增长，最终从一次偶然变成日常习惯。</p>
+        <p>事情败露后，母亲“半晌无话，看了我许久”，老师分析这里不是简单的愤怒，而是不可置信：一个书香家庭的孩子，平时要钱也不是不给，为什么会偷？母亲随后把事情定性为“偷钱”，但没有当着弟妹羞辱孩子。</p>
+        <p>祖母、母亲和父亲的处理共同构成教育重点：事情要定性，错误要承担后果，但不能伤害孩子的自尊。父亲最后把孩子想买的乒乓球拍放在枕边，说“又不是不给他钱，一定要偷，多难为情”，这句话既指出错误，也保留爱与宽容。</p>
+        <p>老师进一步引申：严厉惩罚未必能让人反思，爱与包容反而可能让孩子产生安全感，从而有空间真正面对自己的错误。课堂后半也让同学分享自己犯错后的经历，用来理解文章的教育主题。</p>
+
+        <h2>二、文言文《醉叟传》：人物传记的开头</h2>
+        <p>课程后半进入第四讲文言文。老师介绍作者袁宏道，他是晚明“公安派”代表人物，文章强调独抒性灵、反对模拟古人。袁宏道的散文游记和人物传记都很有代表性。</p>
+        <p>本课开讲《醉叟传》第一段。标题中的“叟”指年老男子，“醉叟”可理解为“醉酒的老者”或“老酒鬼”。老师提醒，转写稿中多次出现“罪首”“最手”等，需复核为“醉叟”。</p>
+        <div class="quote-block">
+          原文片段：醉叟者，不知何地人，亦不言其姓字，以其常醉，呼曰“醉叟”。<br />
+          <span class="review-mark">[需复核：原 Word 多处写作“罪首/最手”，本样例按语境暂校为“醉叟”。]</span>
+        </div>
+        <p>老师逐字解释：“何地”是哪里；“姓字”指姓名字号；“以”在这里表示因为；“呼曰”即称呼为。醉叟的来历、姓名都不清楚，只因常醉，被人称为醉叟，这样的开头制造了人物的神秘感。</p>
+        <p>后文继续写醉叟每年游于“京、离”之间，年约五十余，孑然一身，没有伴侣子弟，手提黄竹篮，整日沉醉。篮中装着干蜈蚣等异物下酒，街市上的人见了非常惊骇。这些细节共同塑造了一个奇异、传奇、让人好奇的人物形象。</p>
+      `,
+      study: `
+        <h2>课程摘要</h2>
+        <p>这是一节“阅读讲评 + 文言文开篇”的混合课。前半围绕吴祖光《偷钱》，学习如何从明线、暗线理解文章结构，并把“偷钱”事件读成一个关于犯错、羞耻、自尊、爱与宽容的教育故事。后半进入袁宏道《醉叟传》，重点是作者背景、标题含义、第一段句读和字词翻译。</p>
+
+        <h2>一、阅读方法：从“线索”进入文章结构</h2>
+        <h3>1. 什么是线索</h3>
+        <p>线索是贯穿文章前后的东西，它能让文章显得紧凑，把分散的情节、人物和主题关联起来。较复杂的文章常常有明线和暗线。</p>
+        <ul>
+          <li><strong>明线：</strong>表面可见的事件发展。</li>
+          <li><strong>暗线：</strong>隐藏在事件背后的心理变化、情感推进或主题发展。</li>
+        </ul>
+
+        <h3>2. 《偷钱》的明线与暗线</h3>
+        <p><strong>明线</strong>是“偷钱”事件本身：想用钱却不愿解释；第一次拿一小部分；没人发现后形成习惯；最后把一大叠铜元全拿走，被母亲发现。</p>
+        <p><strong>暗线</strong>是孩子的心理和家庭教育方式：欲望、道德模糊、侥幸心理、被发现后的羞耻与不安，以及家人如何在定性错误的同时维护孩子的尊严。</p>
+
+        <h2>二、文章主题：犯错之后，成年人怎样引导</h2>
+        <h3>1. 犯错不是简单的“坏”</h3>
+        <p>老师强调，孩子犯错背后常有复杂原因。《偷钱》中，“我”不是因为贫穷偷钱，而是因为想获得用钱自由，又不愿反复向大人解释。第一次偷钱后，“略微有些不安”，说明道德感并未消失，只是进入了模糊区。</p>
+
+        <h3>2. 家人的处理方式</h3>
+        <ul>
+          <li><strong>母亲：</strong>发现后不可置信，但没有在弟妹面前羞辱孩子。</li>
+          <li><strong>祖母：</strong>强调错误需要惩罚，但最后并未真正伤害孩子。</li>
+          <li><strong>父亲：</strong>把孩子想买的乒乓球拍放在枕边，用一句“又不是不给他钱，一定要偷，多难为情”完成提醒。</li>
+        </ul>
+
+        <h3>3. 教育重点</h3>
+        <p>这篇文章真正打动人的地方，不是孩子偷钱这个情节，而是家人在错误面前既有原则，又保留爱。老师把它概括为：<strong>定性错误、维护尊严、保留惩罚意识，同时让孩子感受到爱与宽容。</strong></p>
+        <p>爱与包容不等于纵容。它的价值在于给孩子安全感，让他不必把注意力都放在辩解和反抗上，而能真正回到自己的错误本身。</p>
+
+        <h2>三、文言文：《醉叟传》第一段整理</h2>
+        <h3>1. 作者背景</h3>
+        <p>袁宏道是晚明“公安派”代表人物，主张文章应有真性情，反对一味模拟古人。他的游记和人物传记都很有特色。《醉叟传》属于人物传记，写的是一个来历奇特、行为怪异的老者。</p>
+
+        <h3>2. 标题和人物身份</h3>
+        <p>“叟”是年老男子。“醉叟”就是经常喝醉的老者。标题可以理解为“醉酒老者的传记”。</p>
+        <div class="quote-block">
+          原文保护：醉叟者，不知何地人，亦不言其姓字，以其常醉，呼曰“醉叟”。<br />
+          <span class="review-mark">[需复核：转写稿里出现“罪首、最手、醉手”等，按语境应为“醉叟”。]</span>
+        </div>
+
+        <h3>3. 字词解释</h3>
+        <ul>
+          <li><strong>何地：</strong>哪里。</li>
+          <li><strong>姓字：</strong>姓名字号。</li>
+          <li><strong>以：</strong>因为。</li>
+          <li><strong>呼曰：</strong>称呼为。</li>
+          <li><strong>可：</strong>大约，如“年可五十余”。</li>
+          <li><strong>弟子：</strong>这里不是学生，指家中子弟、小辈。</li>
+          <li><strong>酣沉：</strong>沉醉，喝得很深。</li>
+        </ul>
+
+        <h3>4. 人物形象</h3>
+        <p>第一段重点写醉叟的神秘和怪异：不知来历，不知姓名，孤身一人，手提黄竹篮，整日沉醉，还以干蜈蚣等异物下酒。街市众人惊骇，反而更凸显人物的传奇色彩。</p>
+
+        <h2>四、可复习问题</h2>
+        <ol>
+          <li>《偷钱》的明线和暗线分别是什么？</li>
+          <li>母亲、祖母、父亲在处理孩子犯错时各自做了什么？</li>
+          <li>为什么“爱与宽容”反而可能让孩子真正反思？</li>
+          <li>《醉叟传》开头为什么不交代醉叟姓名和来历？</li>
+          <li>“以其常醉，呼曰醉叟”如何翻译？</li>
+        </ol>
+      `,
+      outline: `
+        <h2>结构提纲版</h2>
+        <ol>
+          <li><strong>课程结构：</strong>《偷钱》阅读讲评 + 《醉叟传》文言文开篇。</li>
+          <li><strong>核心概念：</strong>线索、明线、暗线。</li>
+          <li><strong>《偷钱》明线：</strong>想用钱但不愿解释 → 偷拿铜元 → 侥幸未被发现 → 形成习惯 → 一次拿太多被发现。</li>
+          <li><strong>《偷钱》暗线：</strong>孩子的欲望、道德模糊、侥幸心理、羞耻感、被爱与宽容唤起的反思。</li>
+          <li><strong>教育主题：</strong>错误要被定性，但孩子的自尊也要被保护；爱与包容不是纵容，而是让反思发生。</li>
+          <li><strong>家庭处理：</strong>母亲定性和保护尊严；祖母提示惩罚；父亲用乒乓球拍和一句话完成引导。</li>
+          <li><strong>袁宏道：</strong>晚明公安派，强调性灵和真情，作品中常有奇人奇事。</li>
+          <li><strong>《醉叟传》开头：</strong>不知来历姓名，因常醉而得名，人物登场带有神秘感。</li>
+          <li><strong>文言重点：</strong>以=因为；可=大约；弟子=家中子弟；呼曰=称为。</li>
+          <li><strong>复核重点：</strong>“醉叟”在转写稿中多次被误写为“罪首/最手/醉手”。</li>
+        </ol>
+      `,
+    },
+    cards: [
+      {
+        title: "明线与暗线",
+        type: "阅读方法",
+        summary: "明线是表层事件发展，暗线是隐藏的心理、情感或主题推进。",
+        points: ["先找事件顺序", "再找心理变化", "最后概括主题作用"],
+      },
+      {
+        title: "犯错后的教育",
+        type: "主题卡",
+        summary: "定性错误、维护尊严、保留爱与宽容，是《偷钱》讲评中的核心教育逻辑。",
+        points: ["错误不能模糊", "不当众羞辱", "让孩子有安全感反思"],
+      },
+      {
+        title: "醉叟人物登场",
+        type: "文言文卡",
+        summary: "《醉叟传》开头通过不知来历、常醉、孤身、怪食等细节塑造奇人形象。",
+        points: ["不知何地人", "不言姓字", "以常醉得名", "手提黄竹篮"],
+      },
+      {
+        title: "文言虚词：以",
+        type: "字词卡",
+        summary: "“以其常醉”中的“以”表示因为，是文言文常见用法。",
+        points: ["以=因为", "注意结合上下文翻译", "不要机械翻成“用”"],
+      },
+    ],
+    materials: [
+      {
+        title: "错误与宽容",
+        type: "作文主题",
+        summary: "孩子真正反思错误，常常不是在被猛烈指责时，而是在被原则和爱同时接住时。",
+        examples: ["适合写成长、家庭教育、理解与反思", "可用《偷钱》中父亲放乒乓球拍的细节"],
+      },
+      {
+        title: "神秘人物出场",
+        type: "写作方法",
+        summary: "先不交代来历姓名，而用习惯、外貌和怪异行为引出人物，可以制造悬念。",
+        examples: ["不知何地人", "不言其姓字", "手提一黄竹篮"],
+      },
+    ],
+    reviewItems: [
+      "醉叟：原转写多处为“罪首/最手/醉手”，需核对讲义原文",
+      "京、离：地名转写需核对原文",
+      "近日酣沉：疑似应为“尽日酣沉”，需核对",
+      "市儿：老师解释为街市年轻人/看热闹的人，需与原注释核对",
+      "蜈蚣、蜘蛛、癞蛤蟆等异物下酒片段需核对原文",
+      "课堂分享个人经历较长，学习整理版已大幅压缩",
+    ],
+  },
+  "sample-essay": {
+    title: "五上寒假第七讲",
+    subtitle: "现代文阅读 + 作文点评",
+    teacher: "张老师",
+    type: "阅读作文",
+    sourceFile: "五上-人文综合涵养-寒假-第七讲-阅读理解+作文点评2.docx",
+    stats: "359 段 / 约 3.41 万字",
+    reviewCount: 7,
+    summary: "本课围绕现代文阅读六大题型展开，重点讲题型判断、回归文本、知识性术语；以《放学路上》讲概括题、引用作用、赏析题和比喻分析；后半点评学生写景作文，强调语言凝练、小短句、画面感和表达更新。",
+    rawExcerpt: `
+      <p>陈细影 00:00:01</p>
+      <p>现代文阅读到这个阶段，大家应该形成一个清晰认知：核心逻辑三步走。第一，明确题型和角度；第二，回归文本找细节；第三，调动知识性术语。</p>
+      <p>概括题答题三步走：明确答题区间，找原文关键词，参考已经填好部分的格式。</p>
+      <p>作文点评部分，老师提醒：写景不能再用“温暖的春风吹来让人感到温暖”这类老套、重复、没有画面的表达。</p>
+      <p class="review-mark">[原文疑似转写：“萧氏的放学路上”篇名需核对；“骨瘦如柴/骨瘦形销”片段需核对。]</p>
+    `,
+    versions: {
+      clean: `
+        <h2>一、现代文阅读：三步核心逻辑</h2>
+        <p>老师先总结现代文阅读的核心逻辑：拿到题目后，第一步是明确题型和角度。要判断它属于概括题、分析题、作用题、含义理解题、赏析题，还是开放性试题。题型判断决定答题方向和答案结构。</p>
+        <p>第二步是回归文本。每一道题都要立刻回到文章中寻找相关段落和细节，因为答案不能来自模糊印象，也不能靠脑洞发挥，而要来自原文的关键词、句子和抒情议论部分。</p>
+        <p>第三步是调动知识性术语。比如环境描写、插叙、第一人称、引用、比喻、反复、表达效果等。看到题干中的术语，要能迅速对应答题套路。</p>
+        <div class="quote-block">
+          老师提醒：现代文阅读想要拿高分，就是题型、文本细节、知识术语三样东西的配合。
+        </div>
+
+        <h2>二、《放学路上》阅读讲评</h2>
+        <p>文章开头引用儿歌“小小少年郎，背着书包上学堂……”，老师指出这是引用式开头，也带有画面情境。后文写下午四点半小学门口放学，私家车和家长把小街塞满，又与从前孩子自由放学路形成对比。</p>
+        <p>老师特别讲到几个新鲜比喻：“小街像迅速冲胀的救生圈”“孩子像没纪律的麻雀”“放学路是大戏台、孵化器”。这些比喻不是单纯好看，而是信息丰富：放学路让孩子接触家庭和校园之外的世界，催生灵感、经验和作文素材。</p>
+        <p>概括题部分，老师要求三步：明确区间、找原文关键词、参考已给格式。比如分析作者情感变化时，不能自己发明“厌恶”，而要回到原文找“惋惜”“庆幸”“悲哀”“无奈”“遗憾”等更贴近文本的词。</p>
+        <p>引用作用题本质上接近赏析题。答题时先指出手法或特点，再解释内容，最后说明好处。引用儿歌可以丰富文章内容、吸引读者兴趣，也表达作者对儿时放学路的怀念。</p>
+        <p>赏析“豪华笼子”“贵重行李”这类比喻时，不能简单写“家长囚禁孩子”。要推敲比喻内部信息：豪华说明物质条件好，笼子说明自由受限；贵重行李说明孩子被保护、被运送，也暗含失去自主行动的意味。</p>
+
+        <h2>三、作文点评：语言要更新</h2>
+        <p>后半节课点评学生写景作文。老师肯定部分作文有比喻、拟人、对比和细节，画面感比较突出；但也指出有些句子长、松、重复，需要做减法。</p>
+        <p>例如“正在云雨中朦胧，把显得一去掉，跳跃感就出来”；“仿佛让人置身于清晨山林中”可以改成“如置身清晨山林中”。这类修改让语言变得凝练、有跳跃感。</p>
+        <p>另一个反面例子是《初春》：“初春刚刚到来，大地结束了冰封，温暖的春风吹来，让人感到温暖。”老师指出这类表达重复、老套，没有新的观察，也没有落实本次写作要求。</p>
+      `,
+      study: `
+        <h2>课程摘要</h2>
+        <p>本课主要训练现代文阅读的答题意识，并把阅读方法迁移到作文表达。阅读部分强调：先判断题型，再回到原文找依据，最后调用知识性术语。讲评《放学路上》时，重点分析概括题、引用作用题、赏析题和比喻含义。作文点评部分则要求学生脱离老套写景语言，学习用小短句、凝练表达和有画面感的细节写作。</p>
+
+        <h2>一、现代文阅读的三步法</h2>
+        <h3>1. 明确题型和角度</h3>
+        <p>现代文阅读常见题型包括概括题、分析题、作用题、含义理解题、赏析题和开放性试题。拿到题目时，先判断题型，再决定答题方向。</p>
+
+        <h3>2. 回归文本找细节</h3>
+        <p>答案要来自原文，不要凭模糊印象或自由发挥。尤其是概括题、情感变化题和作用题，都要先找到对应自然段和关键词。</p>
+
+        <h3>3. 调动知识性术语</h3>
+        <p>题干中的“表达效果”“引用”“第一人称”“环境描写”“插叙”等词，都是提醒你调用知识点。答题时既要有术语，也要结合文本内容。</p>
+
+        <h2>二、《放学路上》讲评重点</h2>
+        <h3>1. 文章主题</h3>
+        <p>文章通过现在孩子被接送的放学场景，与过去自由、热闹、有经验的放学路形成对比，表达作者对童年自由经验消失的惋惜和怀念。</p>
+
+        <h3>2. 概括题三步走</h3>
+        <ol>
+          <li><strong>明确答题区间：</strong>先判断这一空对应哪几段。</li>
+          <li><strong>找原文关键词：</strong>优先使用原文中的抒情议论词。</li>
+          <li><strong>参考已给格式：</strong>填空图表题要和前面答案保持格式一致。</li>
+        </ol>
+        <p>例：表示情感变化时，“厌恶”风险很高，因为原文没有这个词，也不符合整体情感。更合适的是“悲哀、无奈、遗憾、惋惜”。</p>
+
+        <h3>3. 引用作用题</h3>
+        <p>引用儿歌的作用可以从三点答：</p>
+        <ul>
+          <li>丰富文章内容，吸引读者阅读兴趣。</li>
+          <li>引出“放学路上”这个话题。</li>
+          <li>表达作者对儿时放学生活的怀念。</li>
+        </ul>
+
+        <h3>4. 赏析题答题结构</h3>
+        <p>赏析题基本三步：指出手法或特点，解释手法内容，说明表达效果。比如“豪华笼子”“贵重行李”是比喻，既写出孩子物质条件优越，又写出他们被保护、被安排、失去自由活动空间。</p>
+
+        <h2>三、作文点评：从老套写景到凝练表达</h2>
+        <h3>1. 好作文的方向</h3>
+        <p>好的写景作文不只是堆形容词，而要有观察、有画面、有手法。老师表扬的优点包括：比喻、拟人、对比丰富，细节描写突出，能够写出季节和景物的变化。</p>
+
+        <h3>2. 语言做减法</h3>
+        <p>有些句子不是内容不对，而是表达太松。可以删掉“显得”“仿佛让人”等拖慢节奏的词，让句子更紧致。</p>
+        <div class="quote-block">
+          修改方向：<br />
+          “仿佛让人置身于清晨山林中” → “如置身清晨山林中”。<br />
+          “星辰也隐藏其中” → 可压成“小短句”，让画面更跳跃。
+        </div>
+
+        <h3>3. 避免老套表达</h3>
+        <p>“温暖的春风吹来，让人感到温暖”“真是一派万物复苏的景象”这类句子问题在于：重复、空泛、缺少新鲜观察，也没有体现刚学过的写作方法。</p>
+
+        <h2>四、复习任务</h2>
+        <ol>
+          <li>背熟现代文阅读三步法：题型、文本、术语。</li>
+          <li>用“区间—关键词—格式”重做一题概括题。</li>
+          <li>整理引用、比喻、插叙、第一人称的作用套话。</li>
+          <li>把自己作文中 3 个老套句子改成更凝练的表达。</li>
+        </ol>
+      `,
+      outline: `
+        <h2>结构提纲版</h2>
+        <ol>
+          <li><strong>课程主线：</strong>现代文阅读方法 → 《放学路上》题目讲评 → 作文语言点评。</li>
+          <li><strong>阅读三步法：</strong>明确题型和角度；回归文本找细节；调动知识性术语。</li>
+          <li><strong>概括题：</strong>定区间；找原文关键词；参考已给格式。</li>
+          <li><strong>引用作用：</strong>丰富内容；吸引兴趣；引出话题；表达怀念。</li>
+          <li><strong>赏析题：</strong>指出手法/特点；解释内容；说明好处。</li>
+          <li><strong>比喻分析：</strong>不能只写“用了比喻”，要拆开喻体里的信息。</li>
+          <li><strong>文章主题：</strong>放学路承载自由、经验、灵感和童年记忆。</li>
+          <li><strong>作文优点：</strong>手法丰富、细节描写、画面感。</li>
+          <li><strong>作文问题：</strong>表达重复、句子松散、语言老套、没有落实课堂方法。</li>
+          <li><strong>修改方向：</strong>删废词；用短句；增强画面；挑战习惯表达。</li>
+        </ol>
+      `,
+    },
+    cards: [
+      {
+        title: "现代文阅读三步法",
+        type: "阅读方法",
+        summary: "先判断题型，再回到文本找依据，最后调用知识性术语组织答案。",
+        points: ["明确题型", "回归文本", "调用术语"],
+      },
+      {
+        title: "概括题三步走",
+        type: "阅读方法",
+        summary: "填空图表类概括题要先定区间，再找原文关键词，并对齐已有答案格式。",
+        points: ["明确答题区间", "找原文关键词", "参考已给格式"],
+      },
+      {
+        title: "引用的作用",
+        type: "阅读方法",
+        summary: "引用可以丰富内容、吸引兴趣、引出话题，也可能表达作者情感。",
+        points: ["丰富文章内容", "吸引读者兴趣", "引出放学路话题", "表达怀念"],
+      },
+      {
+        title: "作文语言做减法",
+        type: "写作方法",
+        summary: "删掉拖慢节奏的词，让语言更凝练、更有跳跃感。",
+        points: ["删除重复", "压缩长句", "保留画面核心"],
+      },
+    ],
+    materials: [
+      {
+        title: "放学路与童年自由",
+        type: "主题素材",
+        summary: "放学路是孩子离开家庭和校园后的开放空间，承载自由、冒险、经验和写作灵感。",
+        examples: ["童年最大的快乐在路上", "放学路是精神发育的露天课堂"],
+      },
+      {
+        title: "写景语言更新",
+        type: "表达技巧",
+        summary: "写景时要避免空泛套话，改用具体画面、短句和有新鲜感的比喻。",
+        examples: ["如置身清晨山林中", "残叶像傍晚的彩霞"],
+      },
+      {
+        title: "反面素材：老套春景",
+        type: "反面素材",
+        summary: "“温暖的春风让人感到温暖”“万物复苏”这类表达缺少观察和新意。",
+        examples: ["重复用词", "抽象总结", "没有具体景物细节"],
+      },
+    ],
+    reviewItems: [
+      "篇名“萧氏的放学路上”疑似转写，需核对讲义",
+      "“骨瘦如柴/骨瘦形销/古兽行销”片段需核对",
+      "学生作文原句有多处转写噪声，已只保留可判断部分",
+      "第 02:08 之后出现大量无意义转写，学习版默认删除",
+      "个别学生姓名按原文转写保留风险较高，样例中已弱化",
+    ],
+  },
+};
 
 const cards = [
   {
@@ -155,6 +496,7 @@ const versions = {
 };
 
 let route = "workspace";
+let currentCourseId = getCourseIdFromHash() || "sample-classical";
 let version = "study";
 let sideTab = "cards";
 let assetTab = "methods";
@@ -177,6 +519,24 @@ function parseHash() {
   if (hash === "courses") return "courses";
   if (hash === "assets") return "assets";
   return "workspace";
+}
+
+function getCourseIdFromHash() {
+  const hash = window.location.hash.replace(/^#\/?/, "");
+  if (!hash.startsWith("courses/")) return "";
+  return hash.split("/")[1] || "";
+}
+
+function activeLesson() {
+  return lessonSamples[currentCourseId] || lessonSamples["sample-classical"];
+}
+
+function allCards() {
+  return [...lessonSamples["sample-classical"].cards, ...lessonSamples["sample-essay"].cards, ...cards.slice(0, 2)];
+}
+
+function allMaterials() {
+  return [...lessonSamples["sample-classical"].materials, ...lessonSamples["sample-essay"].materials, ...materials.slice(0, 1)];
 }
 
 function updateNav() {
@@ -276,23 +636,33 @@ function renderCourses() {
 }
 
 function renderDetail() {
+  const lesson = activeLesson();
   app.innerHTML = `
     <section>
       <div class="detail-header">
         <div>
           <p class="page-kicker">课程详情</p>
-          <h1 class="page-title">课程：五上寒假第七讲｜讲师：张老师</h1>
+          <h1 class="page-title">课程：${lesson.title}｜讲师：${lesson.teacher}</h1>
           <div class="course-meta">
-            <span class="tag">阅读理解 + 作文点评</span>
-            <span class="tag">原始文件：第七讲.docx</span>
-            <span class="tag">复核标记 5 条</span>
+            <span class="tag">${lesson.subtitle}</span>
+            <span class="tag">原始文件：${lesson.sourceFile}</span>
+            <span class="tag">${lesson.stats}</span>
+            <span class="tag">复核标记 ${lesson.reviewCount} 条</span>
           </div>
         </div>
         <button class="button-primary" data-export>⇩ 导出 Word</button>
       </div>
+      <div class="sample-switcher">
+        <button class="${currentCourseId === "sample-classical" ? "active" : ""}" data-open-course="sample-classical">样例一：阅读 + 文言文</button>
+        <button class="${currentCourseId === "sample-essay" ? "active" : ""}" data-open-course="sample-essay">样例二：阅读 + 作文点评</button>
+      </div>
 
       <div class="detail-layout">
         <article class="reading-panel ${compareMode ? "compare-on" : ""}">
+          <section class="source-summary">
+            <p class="page-kicker">流水线试处理样例</p>
+            <p>${lesson.summary}</p>
+          </section>
           <div class="version-tabs">
             <button class="${version === "clean" ? "active" : ""}" data-version="clean">保真清洗版</button>
             <button class="${version === "study" ? "active" : ""}" data-version="study">学习整理版</button>
@@ -301,7 +671,7 @@ function renderDetail() {
               <span>原文对照</span><span class="switch"></span>
             </button>
           </div>
-          ${compareMode ? renderCompare() : `<div class="reading-body"><div class="reading-content">${versions[version]}</div></div>`}
+          ${compareMode ? renderCompare() : `<div class="reading-body"><div class="reading-content">${lesson.versions[version]}</div></div>`}
         </article>
         <aside class="side-panel">
           <section class="side-card">
@@ -319,31 +689,30 @@ function renderDetail() {
 }
 
 function renderCompare() {
+  const lesson = activeLesson();
   return `
     <div class="compare-view">
       <section class="compare-col">
         <h3>原始转写稿</h3>
-        <p>陈细影 00:00:01</p>
-        <p>都一样。可以给看来。共就六大题型。能点评调啊。好。这个回去二三两篇做下来，感觉难度如何啊？</p>
-        <p>现代文阅读啊，到这个阶段大家应该形成一个清晰的认知，核心逻辑到底是什么，我们把它简化一下，三步走。</p>
-        <p>一拿到题目第一步就是明确题型和角度，第二回归文本找细节，第三知识性术语要掌握扎实。</p>
+        ${lesson.rawExcerpt}
       </section>
       <section class="compare-col">
         <h3>当前整理版本</h3>
-        <div class="reading-content">${versions[version]}</div>
+        <div class="reading-content">${lesson.versions[version]}</div>
       </section>
     </div>
   `;
 }
 
 function renderSideContent() {
+  const lesson = activeLesson();
   if (sideTab === "materials") {
-    return `<h3>作文素材</h3><div class="mini-list">${materials.map((item, index) => miniItem(item, index, "material")).join("")}</div>`;
+    return `<h3>作文素材</h3><div class="mini-list">${lesson.materials.map((item, index) => miniItem(item, index, "material")).join("")}</div>`;
   }
   if (sideTab === "review") {
-    return `<h3>复核标记</h3><div class="mini-list">${reviewItems.map((text, index) => `<div class="mini-item" data-toast="已定位到复核项 ${index + 1}"><h4>${text}</h4><p>点击后可在正文中查看上下文。</p></div>`).join("")}</div>`;
+    return `<h3>复核标记</h3><div class="mini-list">${lesson.reviewItems.map((text, index) => `<div class="mini-item" data-toast="已定位到复核项 ${index + 1}"><h4>${text}</h4><p>点击后可在正文中查看上下文。</p></div>`).join("")}</div>`;
   }
-  return `<h3>知识卡片</h3><div class="mini-list">${cards.slice(0, 5).map((item, index) => miniItem(item, index, "card")).join("")}</div>`;
+  return `<h3>知识卡片</h3><div class="mini-list">${lesson.cards.map((item, index) => miniItem(item, index, "card")).join("")}</div>`;
 }
 
 function miniItem(item, index, kind) {
@@ -356,7 +725,7 @@ function miniItem(item, index, kind) {
 }
 
 function renderAssets() {
-  const source = assetTab === "materials" ? materials : assetTab === "words" ? wordsData() : cards;
+  const source = assetTab === "materials" ? allMaterials() : assetTab === "words" ? wordsData() : allCards();
   app.innerHTML = `
     <section class="asset-page">
       <p class="page-kicker">轻量沉淀</p>
@@ -393,7 +762,9 @@ function wordsData() {
 }
 
 function openDrawer(kind, index) {
-  const data = kind === "material" ? materials[index] : cards[index] || wordsData()[index];
+  const lesson = activeLesson();
+  const source = kind === "material" ? lesson.materials : lesson.cards;
+  const data = source[index] || (kind === "material" ? allMaterials()[index] : allCards()[index]) || wordsData()[index];
   if (!data) return;
   const drawer = document.querySelector("#infoDrawer");
   const content = document.querySelector("#drawerContent");
@@ -407,8 +778,8 @@ function openDrawer(kind, index) {
     </div>
     <div class="drawer-section">
       <h3>来源课程</h3>
-      <p>五上寒假第七讲：阅读理解 + 作文点评</p>
-      <button class="button-secondary" data-open-course="lesson-7">查看来源课程</button>
+      <p>${lesson.title}：${lesson.subtitle}</p>
+      <button class="button-secondary" data-open-course="${currentCourseId}">查看来源课程</button>
     </div>
   `;
   drawer.classList.add("open");
@@ -448,7 +819,7 @@ function closeExport() {
 function simulateUpload() {
   showToast("已模拟上传，正在生成整理结果");
   setTimeout(() => {
-    window.location.hash = "#/courses/lesson-7";
+    window.location.hash = "#/courses/sample-essay";
   }, 650);
 }
 
@@ -488,10 +859,12 @@ document.querySelector("#exportModal").addEventListener("click", (event) => {
 
 window.addEventListener("hashchange", () => {
   route = parseHash();
+  currentCourseId = getCourseIdFromHash() || currentCourseId || "sample-classical";
   updateNav();
   render();
 });
 
 route = parseHash();
+currentCourseId = getCourseIdFromHash() || currentCourseId;
 updateNav();
 render();

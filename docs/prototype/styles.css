@@ -458,6 +458,29 @@ a {
   margin-top: 12px;
 }
 
+.sample-switcher {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: -4px 0 18px;
+}
+
+.sample-switcher button {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 253, 247, 0.78);
+  color: var(--color-text-muted);
+  padding: 9px 13px;
+  cursor: pointer;
+}
+
+.sample-switcher button.active {
+  border-color: rgba(166, 35, 31, 0.38);
+  background: #fff7ee;
+  color: var(--color-primary);
+  font-weight: 700;
+}
+
 .detail-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
@@ -467,6 +490,20 @@ a {
 
 .reading-panel {
   overflow: hidden;
+}
+
+.source-summary {
+  padding: 18px 24px 16px;
+  border-bottom: 1px solid var(--color-border);
+  background: rgba(255, 250, 240, 0.68);
+}
+
+.source-summary p {
+  margin: 0;
+}
+
+.source-summary .page-kicker {
+  margin-bottom: 6px;
 }
 
 .version-tabs {
