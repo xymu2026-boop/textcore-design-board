@@ -6,6 +6,10 @@
 
 [打开 GitHub Pages 看板](https://xymu2026-boop.github.io/textcore-design-board/)
 
+高保真可点击原型：
+
+[打开 TextCore 交互原型](https://xymu2026-boop.github.io/textcore-design-board/prototype/)
+
 如果 Pages 还在构建，可以直接在本页面往下看设计稿。
 
 ## AGY 设计师方案

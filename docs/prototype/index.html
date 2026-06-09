@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>文心 TextCore 高保真交互原型</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar" data-tone="red">
+        <a class="brand" href="#/workspace" aria-label="回到工作台">
+          <span class="brand-mark">文</span>
+          <span class="brand-copy">
+            <strong>文心</strong>
+            <small>TextCore</small>
+          </span>
+        </a>
+        <nav class="main-nav" aria-label="主导航">
+          <a href="#/workspace" data-nav="workspace">工作台</a>
+          <a href="#/courses" data-nav="courses">课稿列表</a>
+          <a href="#/assets" data-nav="assets">知识资产</a>
+        </nav>
+        <div class="local-status">
+          <span class="status-dot"></span>
+          <span>本地运行中</span>
+        </div>
+      </header>
+
+      <main id="app" class="page-container"></main>
+    </div>
+
+    <div class="modal-backdrop" id="exportModal" aria-hidden="true">
+      <section class="modal" role="dialog" aria-modal="true" aria-labelledby="exportTitle">
+        <button class="icon-button modal-close" data-close-modal aria-label="关闭">×</button>
+        <h2 id="exportTitle">导出 Word</h2>
+        <p class="muted">生成一份简洁可打印的学习材料，妈妈后续可以继续手改或打印。</p>
+        <div class="check-grid">
+          <label><input type="checkbox" checked /> 课程摘要</label>
+          <label><input type="checkbox" checked /> 学习整理版</label>
+          <label><input type="checkbox" /> 保真清洗版</label>
+          <label><input type="checkbox" /> 结构提纲版</label>
+          <label><input type="checkbox" checked /> 知识卡片</label>
+          <label><input type="checkbox" checked /> 作文素材</label>
+          <label><input type="checkbox" checked /> 复核标记</label>
+          <label><input type="checkbox" /> 原文对照</label>
+        </div>
+        <div class="export-format">
+          <button class="choice active">简洁可打印</button>
+          <button class="choice">完整留档</button>
+        </div>
+        <footer class="modal-actions">
+          <button class="button-secondary" data-close-modal>取消</button>
+          <button class="button-primary" data-close-modal>生成 Word</button>
+        </footer>
+      </section>
+    </div>
+
+    <aside class="drawer" id="infoDrawer" aria-hidden="true">
+      <button class="icon-button drawer-close" data-close-drawer aria-label="关闭">×</button>
+      <div id="drawerContent"></div>
+    </aside>
+
+    <script src="app.js"></script>
+  </body>
+</html>
