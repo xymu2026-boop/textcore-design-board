@@ -501,6 +501,7 @@ let version = "study";
 let sideTab = "cards";
 let assetTab = "methods";
 let compareMode = false;
+let compactMode = false;
 
 const app = document.querySelector("#app");
 const topbar = document.querySelector(".topbar");
@@ -528,7 +529,20 @@ function getCourseIdFromHash() {
 }
 
 function activeLesson() {
-  return lessonSamples[currentCourseId] || lessonSamples["sample-classical"];
+  const base = lessonSamples[currentCourseId] || lessonSamples["sample-classical"];
+  const full = window.fullLessonSamples?.[currentCourseId];
+  if (!full) return base;
+  return {
+    ...base,
+    sourceFile: full.sourceFile || base.sourceFile,
+    stats: `${full.stats.paragraphs} 段 / 原文约 ${(full.stats.rawChars / 10000).toFixed(2)} 万字 / ${full.stats.chunks} 个处理块`,
+    summary: `${base.summary} 当前页面已接入全文试处理结果：保真清洗版覆盖完整转写稿；学习整理版和结构提纲版按 ${full.stats.chunks} 个语义块合并生成。`,
+    versions: full.versions,
+    reviewItems: [...full.reviewItems, ...base.reviewItems],
+    fullStats: full.stats,
+    timing: full.timing,
+    chunks: full.chunks,
+  };
 }
 
 function allCards() {
@@ -663,6 +677,7 @@ function renderDetail() {
             <p class="page-kicker">流水线试处理样例</p>
             <p>${lesson.summary}</p>
           </section>
+          ${renderLongTools(lesson)}
           <div class="version-tabs">
             <button class="${version === "clean" ? "active" : ""}" data-version="clean">保真清洗版</button>
             <button class="${version === "study" ? "active" : ""}" data-version="study">学习整理版</button>
@@ -671,7 +686,7 @@ function renderDetail() {
               <span>原文对照</span><span class="switch"></span>
             </button>
           </div>
-          ${compareMode ? renderCompare() : `<div class="reading-body"><div class="reading-content">${lesson.versions[version]}</div></div>`}
+          ${compareMode ? renderCompare() : `<div class="reading-body ${compactMode ? "compact-long" : ""}"><div class="reading-content">${lesson.versions[version]}</div></div>`}
         </article>
         <aside class="side-panel">
           <section class="side-card">
@@ -683,6 +698,35 @@ function renderDetail() {
             ${renderSideContent()}
           </section>
         </aside>
+      </div>
+    </section>
+  `;
+}
+
+function renderLongTools(lesson) {
+  if (!lesson.fullStats) return "";
+  const stat = lesson.fullStats;
+  const timing = lesson.timing;
+  return `
+    <section class="long-tools">
+      <div class="metric-grid">
+        <div><strong>${(stat.rawChars / 10000).toFixed(2)} 万</strong><span>原文字数</span></div>
+        <div><strong>${stat.chunks}</strong><span>处理分块</span></div>
+        <div><strong>${timing.totalSeconds}s</strong><span>本地原型耗时</span></div>
+        <div><strong>6-15 分钟</strong><span>正式 AI 预估</span></div>
+      </div>
+      <div class="long-actions">
+        <button class="tiny-button" data-toggle-compact>${compactMode ? "展开全文" : "紧凑浏览"}</button>
+        <button class="tiny-button" data-jump-chunk="c01">回到第一段</button>
+        <span>${timing.llmEstimate}</span>
+      </div>
+      <div class="chunk-toc" aria-label="全文分块目录">
+        ${lesson.chunks.map((chunk) => `
+          <button data-jump-chunk="${chunk.id}">
+            <strong>${chunk.id.toUpperCase()}</strong>
+            <span>${chunk.title}</span>
+          </button>
+        `).join("")}
       </div>
     </section>
   `;
@@ -824,7 +868,7 @@ function simulateUpload() {
 }
 
 document.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-route], [data-open-course], [data-version], [data-side-tab], [data-asset-tab], [data-toggle-compare], [data-export], [data-close-modal], [data-open-drawer], [data-close-drawer], [data-upload], [data-go-detail], [data-toast]");
+  const target = event.target.closest("[data-route], [data-open-course], [data-version], [data-side-tab], [data-asset-tab], [data-toggle-compare], [data-toggle-compact], [data-jump-chunk], [data-export], [data-close-modal], [data-open-drawer], [data-close-drawer], [data-upload], [data-go-detail], [data-toast]");
   if (!target) return;
 
   if (target.dataset.route) window.location.hash = `#/${target.dataset.route}`;
@@ -844,6 +888,14 @@ document.addEventListener("click", (event) => {
   if (target.dataset.toggleCompare !== undefined) {
     compareMode = !compareMode;
     renderDetail();
+  }
+  if (target.dataset.toggleCompact !== undefined) {
+    compactMode = !compactMode;
+    renderDetail();
+  }
+  if (target.dataset.jumpChunk) {
+    const node = document.querySelector(`#${target.dataset.jumpChunk}`);
+    if (node) node.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   if (target.dataset.export !== undefined) openExport();
   if (target.dataset.closeModal !== undefined) closeExport();
