@@ -30,6 +30,24 @@
 
 ![结果页高保真](docs/assets/designs/textcore_results_hifi.png)
 
+## AGY 新版页面方向
+
+### 新版首页
+
+![新版首页](docs/assets/designs/homepage_hifi.png)
+
+### 新版列表页
+
+![新版列表页](docs/assets/designs/listpage_hifi.png)
+
+### 新版详情页
+
+![新版详情页](docs/assets/designs/detailspage_hifi.png)
+
+### 新版素材页
+
+![新版素材页](docs/assets/designs/assetspage_hifi.png)
+
 ## Codex 低保真方向
 
 ### 方向一：轻工作台 + 阅读主栏
@@ -47,4 +65,3 @@
 - 知识卡片和作文素材放右侧是否合适。
 - 原文对照默认收起、点击展开是否符合使用习惯。
 - Word 导出是否应以“简洁可打印材料”为主。
-
