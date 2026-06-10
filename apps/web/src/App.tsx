@@ -36,6 +36,7 @@ type DrawerState =
   | { kind: "card"; item: KnowledgeCard }
   | { kind: "material"; item: WritingMaterial }
   | { kind: "classics"; item: ClassicsRef }
+  | { kind: "resource-panel"; tab: "cards" | "materials" | "review"; course: CourseState }
   | null;
 
 type UploadState = {
@@ -178,6 +179,21 @@ function versionForCourse(course: CourseState): VersionKey {
 
 function openReviewFlags(course: CourseState): ReviewFlag[] {
   return (course.review_flags ?? []).filter((flag) => flag.status !== "resolved");
+}
+
+function formatCount(value: number | undefined, unit = ""): string {
+  if (!value) return `0${unit}`;
+  if (value >= 10000) return `${(value / 10000).toFixed(2)} 万${unit}`;
+  return `${value.toLocaleString("zh-CN")}${unit}`;
+}
+
+function courseRawCharCount(course: CourseState): number {
+  return (course.paragraphs ?? []).reduce((total, paragraph) => total + paragraph.text.length, 0);
+}
+
+function compressionText(versionChars: number | undefined, rawChars: number): string {
+  if (!versionChars || !rawChars) return "等待统计";
+  return `${Math.round((versionChars / rawChars) * 100)}%`;
 }
 
 function OutlineTree({ nodes, onJump }: { nodes: OutlineNode[]; onJump: (anchor?: string) => void }) {
@@ -500,10 +516,12 @@ function CoursesPage({
 function VersionTabs({
   value,
   course,
+  rawChars,
   onChange,
 }: {
   value: VersionKey;
   course: CourseState;
+  rawChars: number;
   onChange: (value: VersionKey) => void;
 }) {
   return (
@@ -520,7 +538,11 @@ function VersionTabs({
             type="button"
           >
             <strong>{tier.label}</strong>
-            <span>{version?.char_count ? `${version.char_count} 字` : tier.description}</span>
+            <span>
+              {version?.char_count
+                ? `${formatCount(version.char_count, "字")} · ${compressionText(version.char_count, rawChars)}`
+                : tier.description}
+            </span>
           </button>
         );
       })}
@@ -610,11 +632,23 @@ function InfoBlock({ title, children }: { title: string; children?: ReactNode })
   );
 }
 
-function ResourceDrawer({ drawer, onClose }: { drawer: DrawerState; onClose: () => void }) {
+function ResourceDrawer({
+  drawer,
+  onClose,
+  onOpen,
+}: {
+  drawer: DrawerState;
+  onClose: () => void;
+  onOpen: (drawer: DrawerState) => void;
+}) {
   if (!drawer) return null;
 
   return (
-    <aside aria-modal="true" className="drawer open" role="dialog">
+    <aside
+      aria-modal="true"
+      className={`drawer open ${drawer.kind === "classics" || drawer.kind === "resource-panel" ? "wide" : ""}`}
+      role="dialog"
+    >
       <button aria-label="关闭" className="icon-button drawer-close" onClick={onClose} type="button">
         ×
       </button>
@@ -639,7 +673,67 @@ function ResourceDrawer({ drawer, onClose }: { drawer: DrawerState; onClose: () 
           <InfoBlock title="使用建议">{drawer.item.usage_suggestion}</InfoBlock>
         </div>
       ) : null}
+      {drawer.kind === "resource-panel" ? (
+        <ResourcePanelDrawer course={drawer.course} tab={drawer.tab} onOpen={onOpen} />
+      ) : null}
     </aside>
+  );
+}
+
+function ResourcePanelDrawer({
+  course,
+  tab,
+  onOpen,
+}: {
+  course: CourseState;
+  tab: "cards" | "materials" | "review";
+  onOpen: (drawer: DrawerState) => void;
+}) {
+  const reviewFlags = openReviewFlags(course);
+  const title = tab === "materials" ? "写作素材" : tab === "review" ? "待复核" : "知识点";
+
+  return (
+    <div className="drawer-body">
+      <p className="page-kicker">课程关联资源</p>
+      <h2>{title}</h2>
+      <div className="mini-list drawer-resource-list">
+        {tab === "cards"
+          ? (course.knowledge_cards ?? []).map((card) => (
+              <button className="mini-item resource-item" key={card.card_id} onClick={() => onOpen({ kind: "card", item: card })} type="button">
+                <div>
+                  <h4>{card.title}</h4>
+                  <p>{card.summary ?? "暂无摘要"}</p>
+                  <span className="tag">{card.type}</span>
+                </div>
+              </button>
+            ))
+          : null}
+        {tab === "materials"
+          ? (course.writing_materials ?? []).map((material) => (
+              <button
+                className="mini-item resource-item"
+                key={material.material_id}
+                onClick={() => onOpen({ kind: "material", item: material })}
+                type="button"
+              >
+                <div>
+                  <h4>{material.title}</h4>
+                  <p>{material.usage_suggestion ?? material.usable_expression ?? "暂无素材说明"}</p>
+                  <span className="tag">{material.theme?.join(" / ") ?? "作文素材"}</span>
+                </div>
+              </button>
+            ))
+          : null}
+        {tab === "review"
+          ? reviewFlags.map((flag) => <ReviewMark flag={flag} key={flag.flag_id ?? `${flag.text}-${flag.reason}`} />)
+          : null}
+        {(tab === "cards" && !(course.knowledge_cards ?? []).length) ||
+        (tab === "materials" && !(course.writing_materials ?? []).length) ||
+        (tab === "review" && !reviewFlags.length) ? (
+          <p className="muted">后端尚未返回该类资源。</p>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -794,12 +888,19 @@ function CourseDetail({
   }
 
   const bodyHtml = htmlFromBody(course.versions?.[version]?.body_md);
+  const rawChars = courseRawCharCount(course);
   const rawText = (course.paragraphs ?? [])
     .slice(0, 24)
     .map((paragraph) => `${paragraph.speaker ?? ""} ${paragraph.ts ?? ""}\n${paragraph.text}`)
     .join("\n\n");
   const reviewFlags = openReviewFlags(course);
   const firstClassics = course.classics_refs?.find((item) => item.matched) ?? null;
+  const resourceCounts = {
+    cards: course.knowledge_cards?.length ?? 0,
+    materials: course.writing_materials?.length ?? 0,
+    review: reviewFlags.length,
+    classics: course.classics_refs?.filter((item) => item.matched).length ?? 0,
+  };
 
   return (
     <section>
@@ -826,14 +927,33 @@ function CourseDetail({
       </div>
 
       <div className="detail-layout">
-        <ChunkToc course={course} onJump={jumpTo} />
         <article className="reading-panel">
           <section className="source-summary">
             <div className="overview-card">
-              <div>
+              <div className="overview-card-head">
                 <p className="page-kicker">课程摘要</p>
-                <h2>{course.global?.course_summary ?? "后端尚未返回课程摘要"}</h2>
+                <div className="overview-actions" aria-label="课程关联资源">
+                  <button className="tiny-button resource-button" onClick={() => setDrawer({ kind: "resource-panel", tab: "cards", course })} type="button">
+                    知识点 · <span>{resourceCounts.cards}</span>
+                  </button>
+                  <button
+                    className="tiny-button resource-button"
+                    onClick={() => setDrawer({ kind: "resource-panel", tab: "materials", course })}
+                    type="button"
+                  >
+                    写作素材 · <span>{resourceCounts.materials}</span>
+                  </button>
+                  <button className="tiny-button resource-button" onClick={() => setDrawer({ kind: "resource-panel", tab: "review", course })} type="button">
+                    待复核 · <span>{resourceCounts.review}</span>
+                  </button>
+                  {firstClassics ? (
+                    <button className="tiny-button resource-button classics-resource-button" onClick={() => setDrawer({ kind: "classics", item: firstClassics })} type="button">
+                      旁征博引 · <span>{resourceCounts.classics}</span>
+                    </button>
+                  ) : null}
+                </div>
               </div>
+              <h2>{courseTitle(course)}：{course.global?.course_summary ?? "后端尚未返回课程摘要"}</h2>
               <div className="keyword-row">
                 {(course.global?.main_themes ?? []).map((theme) => (
                   <button className="keyword-chip" key={theme} onClick={() => setPopover(firstClassics)} type="button">
@@ -845,16 +965,32 @@ function CourseDetail({
             {firstClassics ? (
               <ClassicsPopover refItem={firstClassics} onOpen={() => setDrawer({ kind: "classics", item: firstClassics })} />
             ) : null}
+            <div className="process-meta">
+              <span>原文 {formatCount(rawChars, "字")}</span>
+              <span>{course.chunks?.length ?? 0} 个正文分段</span>
+              <span>当前 {VERSION_LABELS[version]}</span>
+              <span>{course.quality?.coverage ? `覆盖 ${course.quality.coverage}` : "本地处理"}</span>
+            </div>
           </section>
           <section className="sticky-control-bar">
-            <VersionTabs course={course} onChange={setVersion} value={version} />
+            <VersionTabs course={course} onChange={setVersion} rawChars={rawChars} value={version} />
             <button
               className={`button-secondary compare-action ${compare ? "active" : ""}`}
               onClick={() => setCompare((current) => !current)}
               type="button"
             >
-              原文对照 <span>{compare ? "已开启" : "未开启"}</span>
+              对照原文 <span>原文 {formatCount(rawChars, "字")}</span>
             </button>
+            <div className="control-actions">
+              <details className="chapter-menu">
+                <summary>
+                  章节目录 <span className="current-chunk-label">{course.global?.outline_tree?.[0]?.title ?? "全文"}</span>
+                </summary>
+                <div className="chapter-menu-list">
+                  <OutlineTree nodes={course.global?.outline_tree ?? []} onJump={jumpTo} />
+                </div>
+              </details>
+            </div>
           </section>
           {compare ? (
             <div className="compare-view">
@@ -874,6 +1010,7 @@ function CourseDetail({
             </div>
           )}
         </article>
+        <ChunkToc course={course} onJump={jumpTo} />
 
         <aside className="side-card detail-side">
           <div className="side-tabs">
@@ -891,7 +1028,7 @@ function CourseDetail({
         </aside>
       </div>
       {popover ? <ClassicsPopover refItem={popover} onOpen={() => setDrawer({ kind: "classics", item: popover })} /> : null}
-      <ResourceDrawer drawer={drawer} onClose={() => setDrawer(null)} />
+      <ResourceDrawer drawer={drawer} onClose={() => setDrawer(null)} onOpen={setDrawer} />
     </section>
   );
 }
