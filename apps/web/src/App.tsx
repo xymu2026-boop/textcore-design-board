@@ -1,3 +1,1145 @@
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import {
+  getCourse,
+  listCourses,
+  requestExport,
+  subscribeCourseEvents,
+  uploadCourse,
+} from "./api/client";
+import type {
+  ClassicsRef,
+  CourseListItem,
+  CourseState,
+  CourseStatus,
+  KnowledgeCard,
+  OutlineNode,
+  ReviewFlag,
+  StatusEvent,
+  WritingMaterial,
+} from "./api/types";
+import {
+  DEFAULT_VERSION,
+  VERSION_LABELS,
+  VERSION_TIERS,
+  type VersionKey,
+  isVersionKey,
+} from "./constants/versions";
+
+type Route =
+  | { name: "workspace" }
+  | { name: "courses" }
+  | { name: "detail"; courseId: string }
+  | { name: "assets" };
+
+type DrawerState =
+  | { kind: "card"; item: KnowledgeCard }
+  | { kind: "material"; item: WritingMaterial }
+  | { kind: "classics"; item: ClassicsRef }
+  | null;
+
+type UploadState = {
+  fileName?: string;
+  courseId?: string;
+  status: "idle" | "uploading" | "processing" | "completed" | "failed";
+  progress: number;
+  message?: string;
+  events: StatusEvent[];
+};
+
+const NAV_ITEMS = [
+  { path: "/", key: "workspace", label: "工作台" },
+  { path: "/courses", key: "courses", label: "课稿库" },
+  { path: "/assets", key: "assets", label: "知识资产" },
+] as const;
+
+const STATUS_LABELS: Record<CourseStatus, string> = {
+  created: "已创建",
+  processing: "处理中",
+  completed: "已完成",
+  failed: "失败",
+  needs_human: "有待复核",
+};
+
+const INITIAL_UPLOAD_STATE: UploadState = {
+  status: "idle",
+  progress: 0,
+  events: [],
+};
+
+function parseRoute(): Route {
+  const pathname = window.location.pathname.replace(/\/$/, "") || "/";
+  if (pathname === "/courses") return { name: "courses" };
+  if (pathname.startsWith("/courses/")) {
+    return { name: "detail", courseId: decodeURIComponent(pathname.slice("/courses/".length)) };
+  }
+  if (pathname === "/assets") return { name: "assets" };
+  return { name: "workspace" };
+}
+
+function routePath(route: Route): string {
+  if (route.name === "courses") return "/courses";
+  if (route.name === "detail") return `/courses/${encodeURIComponent(route.courseId)}`;
+  if (route.name === "assets") return "/assets";
+  return "/";
+}
+
+function navigateTo(route: Route) {
+  const path = routePath(route);
+  if (window.location.pathname !== path) {
+    window.history.pushState({}, "", path);
+    window.dispatchEvent(new PopStateEvent("popstate"));
+  }
+}
+
+function useRoute(): Route {
+  const [route, setRoute] = useState<Route>(() => parseRoute());
+
+  useEffect(() => {
+    const handlePopState = () => setRoute(parseRoute());
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  return route;
+}
+
+function htmlFromBody(input: string | undefined): string {
+  if (!input) return "<p>后端尚未返回该版本正文。</p>";
+  const trimmed = input.trim();
+  if (trimmed.startsWith("<")) return trimmed;
+
+  const lines = trimmed.split(/\n+/);
+  const blocks: string[] = [];
+  let listItems: string[] = [];
+
+  const flushList = () => {
+    if (listItems.length > 0) {
+      blocks.push(`<ul>${listItems.join("")}</ul>`);
+      listItems = [];
+    }
+  };
+
+  lines.forEach((line) => {
+    const text = line.trim();
+    if (!text) {
+      flushList();
+      return;
+    }
+    if (text.startsWith("## ")) {
+      flushList();
+      blocks.push(`<h2>${escapeHtml(text.slice(3))}</h2>`);
+      return;
+    }
+    if (text.startsWith("### ")) {
+      flushList();
+      blocks.push(`<h3>${escapeHtml(text.slice(4))}</h3>`);
+      return;
+    }
+    if (/^[-*]\s/.test(text)) {
+      listItems.push(`<li>${escapeHtml(text.replace(/^[-*]\s/, ""))}</li>`);
+      return;
+    }
+    flushList();
+    blocks.push(`<p>${escapeHtml(text)}</p>`);
+  });
+
+  flushList();
+  return blocks.join("");
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#039;");
+}
+
+function courseTitle(course: CourseState): string {
+  return course.source.detected_meta?.course_title ?? course.source.file ?? course.course_id;
+}
+
+function courseTeacher(course: CourseState): string {
+  return course.source.detected_meta?.teacher ?? "未识别讲师";
+}
+
+function courseTypeLabel(course: CourseState): string {
+  const candidates = course.source.detected_meta?.content_type_candidates;
+  if (candidates?.length) return candidates.join(" + ");
+  if (course.course_types?.mixed) return "混合课";
+  return course.course_types?.dominant_type ?? "未识别课型";
+}
+
+function versionForCourse(course: CourseState): VersionKey {
+  return isVersionKey(course.default_version) ? course.default_version : DEFAULT_VERSION;
+}
+
+function openReviewFlags(course: CourseState): ReviewFlag[] {
+  return (course.review_flags ?? []).filter((flag) => flag.status !== "resolved");
+}
+
+function OutlineTree({ nodes, onJump }: { nodes: OutlineNode[]; onJump: (anchor?: string) => void }) {
+  if (nodes.length === 0) {
+    return <p className="muted">后端尚未返回目录结构。</p>;
+  }
+
+  return (
+    <div className="toc-list">
+      {nodes.map((node) => (
+        <button
+          className={`toc-item level-${node.level ?? 2}`}
+          key={`${node.title}-${node.anchor ?? ""}`}
+          onClick={() => onJump(node.anchor ?? node.chunk_ids?.[0])}
+          type="button"
+        >
+          <strong>{node.title}</strong>
+          {node.children && node.children.length > 0 ? <span>{node.children.length} 个小节</span> : null}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function Topbar({ active }: { active: Route["name"] }) {
+  return (
+    <header className="topbar" data-tone="paper">
+      <a
+        aria-label="回到工作台"
+        className="brand"
+        href="/"
+        onClick={(event) => {
+          event.preventDefault();
+          navigateTo({ name: "workspace" });
+        }}
+      >
+        <span className="brand-mark">文</span>
+        <span className="brand-copy">
+          <strong>文心</strong>
+          <small>TextCore</small>
+        </span>
+      </a>
+      <nav aria-label="主导航" className="main-nav">
+        {NAV_ITEMS.map((item) => (
+          <a
+            className={active === item.key || (active === "detail" && item.key === "courses") ? "active" : ""}
+            href={item.path}
+            key={item.key}
+            onClick={(event) => {
+              event.preventDefault();
+              navigateTo(item.key === "workspace" ? { name: "workspace" } : { name: item.key });
+            }}
+          >
+            {item.label}
+          </a>
+        ))}
+      </nav>
+      <div className="local-status">
+        <span className="status-dot" />
+        <span>本地运行中</span>
+      </div>
+    </header>
+  );
+}
+
+function UploadPanel({
+  upload,
+  onUpload,
+}: {
+  upload: UploadState;
+  onUpload: (file: File) => void;
+}) {
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [dragging, setDragging] = useState(false);
+
+  const pickFile = () => inputRef.current?.click();
+  const handleFile = (file: File | undefined) => {
+    if (file) onUpload(file);
+  };
+
+  return (
+    <section
+      className={`upload-panel ${dragging ? "dragging" : ""}`}
+      onDragLeave={() => setDragging(false)}
+      onDragOver={(event) => {
+        event.preventDefault();
+        setDragging(true);
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        setDragging(false);
+        handleFile(event.dataTransfer.files[0]);
+      }}
+    >
+      <input
+        accept=".docx"
+        hidden
+        onChange={(event) => handleFile(event.currentTarget.files?.[0])}
+        ref={inputRef}
+        type="file"
+      />
+      <div>
+        <div className="upload-icon">⇧</div>
+        <h1 className="upload-title">上传课堂转写 Word<br />生成学习资料</h1>
+        <p className="muted">支持 .docx；生成保真清洗、精简整理、学习整理和结构提纲。</p>
+        <button className="button-primary" onClick={pickFile} type="button">
+          选择 Word 文件
+        </button>
+        {upload.status !== "idle" ? (
+          <div className="upload-status" role="status">
+            <strong>{upload.fileName ?? "课稿"}</strong>
+            <span>{upload.message ?? "正在上传并等待处理进度..."}</span>
+            <div className="progress-track">
+              <i style={{ width: `${Math.round(upload.progress * 100)}%` }} />
+            </div>
+          </div>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
+function ProgressPanel({ upload }: { upload: UploadState }) {
+  const fallback: StatusEvent[] = [
+    { course_id: upload.courseId ?? "pending", stage: "S0", stage_label: "解析 Word", stage_status: "done" },
+    { course_id: upload.courseId ?? "pending", stage: "S1", stage_label: "预清洗", stage_status: "done" },
+    { course_id: upload.courseId ?? "pending", stage: "S2", stage_label: "识别课型", stage_status: "running" },
+    { course_id: upload.courseId ?? "pending", stage: "S7", stage_label: "生成四档版本", stage_status: "pending" },
+    { course_id: upload.courseId ?? "pending", stage: "S10", stage_label: "准备导出", stage_status: "pending" },
+  ];
+  const events = upload.events.length > 0 ? upload.events : fallback;
+
+  return (
+    <section className="progress-panel">
+      <p className="page-kicker">处理进度</p>
+      <h2 className="section-heading">
+        {upload.status === "idle" ? "等待新课稿" : upload.fileName ?? "正在整理"}
+      </h2>
+      <div className="steps">
+        {events.slice(-6).map((event) => (
+          <div className={`step ${event.stage_status}`} key={`${event.stage}-${event.ts ?? event.message ?? ""}`}>
+            <span>{event.stage_status === "done" ? "✓" : event.stage_status === "failed" ? "!" : ""}</span>
+            <span>
+              {event.stage}：{event.stage_label ?? event.message ?? "处理中"}
+            </span>
+          </div>
+        ))}
+      </div>
+      <button
+        className="button-secondary"
+        disabled={!upload.courseId}
+        onClick={() => upload.courseId && navigateTo({ name: "detail", courseId: upload.courseId })}
+        type="button"
+      >
+        查看整理结果
+      </button>
+    </section>
+  );
+}
+
+function CourseTable({
+  courses,
+  compact = false,
+  onExport,
+}: {
+  courses: CourseListItem[];
+  compact?: boolean;
+  onExport: (courseId: string) => void;
+}) {
+  if (courses.length === 0) {
+    return (
+      <section className="empty-panel">
+        <h3>还没有课稿</h3>
+        <p className="muted">后端列表为空或 API 暂不可用。上传 Word 后，这里会显示处理状态。</p>
+      </section>
+    );
+  }
+
+  return (
+    <section className="table-panel">
+      <table className="history-table">
+        <thead>
+          <tr>
+            <th>课程名</th>
+            {!compact ? <th>课型</th> : null}
+            <th>状态</th>
+            <th>更新时间</th>
+            {!compact ? <th>待复核</th> : null}
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          {courses.map((course) => (
+            <tr key={course.course_id}>
+              <td>
+                <button
+                  className="link-button"
+                  onClick={() => navigateTo({ name: "detail", courseId: course.course_id })}
+                  type="button"
+                >
+                  {course.title}
+                </button>
+                <br />
+                <span className="muted">
+                  {[course.subtitle, course.teacher].filter(Boolean).join(" · ") || course.course_id}
+                </span>
+              </td>
+              {!compact ? <td>{course.type ?? "未识别"}</td> : null}
+              <td>
+                <span className={`tag status-${course.status}`}>{STATUS_LABELS[course.status]}</span>
+              </td>
+              <td>{course.updated_at ?? "刚刚"}</td>
+              {!compact ? <td>{course.review_count ? `${course.review_count} 条` : "无"}</td> : null}
+              <td>
+                <button
+                  className="tiny-button"
+                  onClick={() => navigateTo({ name: "detail", courseId: course.course_id })}
+                  type="button"
+                >
+                  查看
+                </button>
+                <button className="tiny-button" onClick={() => onExport(course.course_id)} type="button">
+                  导出
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </section>
+  );
+}
+
+function WorkspacePage({
+  courses,
+  upload,
+  onUpload,
+  onExport,
+}: {
+  courses: CourseListItem[];
+  upload: UploadState;
+  onUpload: (file: File) => void;
+  onExport: (courseId: string) => void;
+}) {
+  return (
+    <section className="workspace-grid">
+      <UploadPanel onUpload={onUpload} upload={upload} />
+      <div className="workspace-side">
+        <ProgressPanel upload={upload} />
+        <div className="panel-spacer">
+          <div className="section-row">
+            <div>
+              <p className="page-kicker">最近处理</p>
+              <h2 className="section-heading">课稿历史</h2>
+            </div>
+            <button className="button-secondary" onClick={() => navigateTo({ name: "courses" })} type="button">
+              全部课稿
+            </button>
+          </div>
+          <CourseTable compact courses={courses.slice(0, 4)} onExport={onExport} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function CoursesPage({
+  courses,
+  error,
+  onExport,
+}: {
+  courses: CourseListItem[];
+  error?: string;
+  onExport: (courseId: string) => void;
+}) {
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState<CourseStatus | "all">("all");
+  const filtered = courses.filter((course) => {
+    const text = [course.title, course.subtitle, course.teacher, course.type].filter(Boolean).join(" ");
+    return text.toLowerCase().includes(query.toLowerCase()) && (status === "all" || course.status === status);
+  });
+
+  return (
+    <section>
+      <div className="page-title-row">
+        <div>
+          <p className="page-kicker">课程资料</p>
+          <h1 className="page-title">课稿库</h1>
+          <p className="muted">管理已上传、处理中和需要复核的课堂转写稿。</p>
+        </div>
+        <button className="button-primary" onClick={() => navigateTo({ name: "workspace" })} type="button">
+          上传新课稿
+        </button>
+      </div>
+      {error ? <p className="inline-error">{error}</p> : null}
+      <div className="filter-panel">
+        <input
+          className="search-input"
+          onChange={(event) => setQuery(event.currentTarget.value)}
+          placeholder="搜索课程名、老师、课型"
+          value={query}
+        />
+        <select
+          className="select-input"
+          onChange={(event) => setStatus(event.currentTarget.value as CourseStatus | "all")}
+          value={status}
+        >
+          <option value="all">全部状态</option>
+          <option value="processing">处理中</option>
+          <option value="completed">已完成</option>
+          <option value="needs_human">有复核</option>
+          <option value="failed">失败</option>
+        </select>
+      </div>
+      <CourseTable courses={filtered} onExport={onExport} />
+    </section>
+  );
+}
+
+function VersionTabs({
+  value,
+  course,
+  onChange,
+}: {
+  value: VersionKey;
+  course: CourseState;
+  onChange: (value: VersionKey) => void;
+}) {
+  return (
+    <div aria-label="正文版本" className="version-segment" role="tablist">
+      {VERSION_TIERS.map((tier) => {
+        const version = course.versions?.[tier.key];
+        return (
+          <button
+            aria-selected={value === tier.key}
+            className={value === tier.key ? "active" : ""}
+            key={tier.key}
+            onClick={() => onChange(tier.key)}
+            role="tab"
+            type="button"
+          >
+            <strong>{tier.label}</strong>
+            <span>{version?.char_count ? `${version.char_count} 字` : tier.description}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function ReviewMark({ flag }: { flag: ReviewFlag }) {
+  return (
+    <div className="review-mark-block">
+      <strong>{flag.text}</strong>
+      {flag.suggestion ? <span className="diff-mark">建议：{flag.suggestion}</span> : null}
+      <p>{flag.reason}</p>
+      <small>{[flag.pid, flag.chunk_id, flag.severity].filter(Boolean).join(" · ")}</small>
+    </div>
+  );
+}
+
+function ChunkToc({ course, onJump }: { course: CourseState; onJump: (anchor?: string) => void }) {
+  return (
+    <aside aria-label="正文分段导航" className="floating-toc-sidebar">
+      <button className="toc-home" onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} type="button">
+        <strong>顶</strong>
+        <span>回到首屏</span>
+      </button>
+      <OutlineTree nodes={course.global?.outline_tree ?? []} onJump={onJump} />
+    </aside>
+  );
+}
+
+function ClassicsPopover({ refItem, onOpen }: { refItem: ClassicsRef; onOpen: () => void }) {
+  return (
+    <aside className="classics-popover">
+      <span className="classical-label">旁征博引</span>
+      <h4>
+        {refItem.title ?? "古文引用"} {refItem.writer ? `· ${refItem.writer}` : ""}
+      </h4>
+      <p>{refItem.canonical_text ?? "已命中参考资料，等待后端返回权威原文。"}</p>
+      <button className="tiny-button" onClick={onOpen} type="button">
+        查看译文与赏析
+      </button>
+    </aside>
+  );
+}
+
+function ClassicsDrawer({ refItem }: { refItem: ClassicsRef }) {
+  return (
+    <div className="drawer-body">
+      <p className="page-kicker">古文旁征博引</p>
+      <h2>{refItem.title ?? "古文资料"}</h2>
+      <p className="muted">
+        {[refItem.dynasty, refItem.writer, refItem.source].filter(Boolean).join(" · ") || "参考来源待后端返回"}
+      </p>
+      <section className="classical-appreciation-block">
+        <h3>权威原文</h3>
+        <p className="classical-original">{refItem.canonical_text ?? "暂无 canonical_text"}</p>
+        {refItem.diffs?.length ? (
+          <div className="diff-list">
+            {refItem.diffs.map((diff) => (
+              <span className="correction-mark" key={`${diff.pid ?? ""}-${diff.raw}-${diff.canonical}`}>
+                {diff.canonical}
+                <sup>原:{diff.raw}</sup>
+              </span>
+            ))}
+          </div>
+        ) : null}
+      </section>
+      <InfoBlock title="译文">{refItem.translation}</InfoBlock>
+      <InfoBlock title="字词注释">{refItem.remark}</InfoBlock>
+      <InfoBlock title="赏析">{refItem.shangxi}</InfoBlock>
+      {refItem.ref_url ? (
+        <a className="source-link" href={refItem.ref_url} rel="noreferrer" target="_blank">
+          来源：{refItem.ref_url}
+        </a>
+      ) : null}
+    </div>
+  );
+}
+
+function InfoBlock({ title, children }: { title: string; children?: ReactNode }) {
+  if (!children) return null;
+  return (
+    <section className="info-block">
+      <h3>{title}</h3>
+      <p>{children}</p>
+    </section>
+  );
+}
+
+function ResourceDrawer({ drawer, onClose }: { drawer: DrawerState; onClose: () => void }) {
+  if (!drawer) return null;
+
+  return (
+    <aside aria-modal="true" className="drawer open" role="dialog">
+      <button aria-label="关闭" className="icon-button drawer-close" onClick={onClose} type="button">
+        ×
+      </button>
+      {drawer.kind === "classics" ? <ClassicsDrawer refItem={drawer.item} /> : null}
+      {drawer.kind === "card" ? (
+        <div className="drawer-body">
+          <p className="page-kicker">知识卡片</p>
+          <h2>{drawer.item.title}</h2>
+          <span className="tag">{drawer.item.type}</span>
+          <p>{drawer.item.summary ?? "暂无详解"}</p>
+          <ul>{(drawer.item.core_points ?? []).map((point) => <li key={point}>{point}</li>)}</ul>
+          <InfoBlock title="课堂例子">{drawer.item.example}</InfoBlock>
+        </div>
+      ) : null}
+      {drawer.kind === "material" ? (
+        <div className="drawer-body">
+          <p className="page-kicker">作文素材</p>
+          <h2>{drawer.item.title}</h2>
+          <span className="tag">{drawer.item.theme?.join(" / ") ?? "素材"}</span>
+          <InfoBlock title="可用表达">{drawer.item.usable_expression}</InfoBlock>
+          <InfoBlock title="老师点评">{drawer.item.teacher_comment}</InfoBlock>
+          <InfoBlock title="使用建议">{drawer.item.usage_suggestion}</InfoBlock>
+        </div>
+      ) : null}
+    </aside>
+  );
+}
+
+function ExportModal({
+  courseId,
+  version,
+  onClose,
+}: {
+  courseId?: string;
+  version: VersionKey;
+  onClose: () => void;
+}) {
+  const [format, setFormat] = useState("printable");
+  const [sections, setSections] = useState(["summary", "current_version", "cards", "materials", "classics", "review"]);
+  const [message, setMessage] = useState("");
+
+  if (!courseId) return null;
+
+  const toggleSection = (section: string) => {
+    setSections((current) =>
+      current.includes(section) ? current.filter((item) => item !== section) : [...current, section],
+    );
+  };
+
+  const submit = async () => {
+    setMessage("正在生成 Word...");
+    try {
+      const blob = await requestExport(courseId, { version, sections, format });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `${courseId}-${version}.docx`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setMessage("已开始下载。");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "导出失败");
+    }
+  };
+
+  const sectionOptions = [
+    ["summary", "课程摘要"],
+    ["current_version", VERSION_LABELS[version]],
+    ["cards", "知识点"],
+    ["materials", "写作素材"],
+    ["classics", "旁征博引资料"],
+    ["review", "待复核"],
+    ["raw", "对照原文"],
+  ];
+
+  return (
+    <div className="modal-backdrop">
+      <section aria-labelledby="exportTitle" aria-modal="true" className="modal" role="dialog">
+        <button aria-label="关闭" className="icon-button modal-close" onClick={onClose} type="button">
+          ×
+        </button>
+        <h2 id="exportTitle">导出 Word</h2>
+        <p className="muted">生成一份简洁可打印的学习材料，后续可以继续手改或打印。</p>
+        <div className="check-grid">
+          {sectionOptions.map(([key, label]) => (
+            <label key={key}>
+              <input
+                checked={sections.includes(key)}
+                onChange={() => toggleSection(key)}
+                type="checkbox"
+              />{" "}
+              {label}
+            </label>
+          ))}
+        </div>
+        <div className="export-format">
+          <button
+            className={`choice ${format === "printable" ? "active" : ""}`}
+            onClick={() => setFormat("printable")}
+            type="button"
+          >
+            简洁可打印
+          </button>
+          <button
+            className={`choice ${format === "archive" ? "active" : ""}`}
+            onClick={() => setFormat("archive")}
+            type="button"
+          >
+            完整留档
+          </button>
+        </div>
+        {message ? <p className="muted">{message}</p> : null}
+        <footer className="modal-actions">
+          <button className="button-secondary" onClick={onClose} type="button">
+            取消
+          </button>
+          <button className="button-primary" onClick={submit} type="button">
+            生成 Word
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
+function CourseDetail({
+  courseId,
+  onExport,
+}: {
+  courseId: string;
+  onExport: (courseId: string, version?: VersionKey) => void;
+}) {
+  const [course, setCourse] = useState<CourseState | null>(null);
+  const [error, setError] = useState("");
+  const [version, setVersion] = useState<VersionKey>(DEFAULT_VERSION);
+  const [compare, setCompare] = useState(false);
+  const [drawer, setDrawer] = useState<DrawerState>(null);
+  const [popover, setPopover] = useState<ClassicsRef | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    setCourse(null);
+    setError("");
+    getCourse(courseId)
+      .then((payload) => {
+        if (!active) return;
+        setCourse(payload);
+        setVersion(versionForCourse(payload));
+      })
+      .catch((err: unknown) => {
+        if (!active) return;
+        setError(err instanceof Error ? err.message : "课程详情加载失败");
+      });
+    return () => {
+      active = false;
+    };
+  }, [courseId]);
+
+  const jumpTo = (anchor?: string) => {
+    if (!anchor) return;
+    document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  if (error) {
+    return (
+      <section className="empty-panel">
+        <h1>课程详情暂不可用</h1>
+        <p className="muted">{error}</p>
+        <button className="button-secondary" onClick={() => navigateTo({ name: "courses" })} type="button">
+          返回课稿库
+        </button>
+      </section>
+    );
+  }
+
+  if (!course) {
+    return <section className="empty-panel">正在加载课程详情...</section>;
+  }
+
+  const bodyHtml = htmlFromBody(course.versions?.[version]?.body_md);
+  const rawText = (course.paragraphs ?? [])
+    .slice(0, 24)
+    .map((paragraph) => `${paragraph.speaker ?? ""} ${paragraph.ts ?? ""}\n${paragraph.text}`)
+    .join("\n\n");
+  const reviewFlags = openReviewFlags(course);
+  const firstClassics = course.classics_refs?.find((item) => item.matched) ?? null;
+
+  return (
+    <section>
+      <div className="detail-breadcrumb">
+        <button className="button-ghost" onClick={() => navigateTo({ name: "courses" })} type="button">
+          ← 返回课稿库
+        </button>
+      </div>
+      <div className="detail-header">
+        <div>
+          <p className="page-kicker">课程详情</p>
+          <h1 className="page-title">{courseTitle(course)}</h1>
+          <div className="course-meta">
+            <span className="tag">讲师：{courseTeacher(course)}</span>
+            <span className="tag">{courseTypeLabel(course)}</span>
+            <span className="tag">原始文件：{course.source.file}</span>
+            <span className={`tag status-${course.status}`}>{STATUS_LABELS[course.status]}</span>
+            <span className="tag">待复核 {reviewFlags.length} 条</span>
+          </div>
+        </div>
+        <button className="button-primary" onClick={() => onExport(course.course_id, version)} type="button">
+          ⇩ 导出 Word
+        </button>
+      </div>
+
+      <div className="detail-layout">
+        <ChunkToc course={course} onJump={jumpTo} />
+        <article className="reading-panel">
+          <section className="source-summary">
+            <div className="overview-card">
+              <div>
+                <p className="page-kicker">课程摘要</p>
+                <h2>{course.global?.course_summary ?? "后端尚未返回课程摘要"}</h2>
+              </div>
+              <div className="keyword-row">
+                {(course.global?.main_themes ?? []).map((theme) => (
+                  <button className="keyword-chip" key={theme} onClick={() => setPopover(firstClassics)} type="button">
+                    {theme}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {firstClassics ? (
+              <ClassicsPopover refItem={firstClassics} onOpen={() => setDrawer({ kind: "classics", item: firstClassics })} />
+            ) : null}
+          </section>
+          <section className="sticky-control-bar">
+            <VersionTabs course={course} onChange={setVersion} value={version} />
+            <button
+              className={`button-secondary compare-action ${compare ? "active" : ""}`}
+              onClick={() => setCompare((current) => !current)}
+              type="button"
+            >
+              原文对照 <span>{compare ? "已开启" : "未开启"}</span>
+            </button>
+          </section>
+          {compare ? (
+            <div className="compare-view">
+              <section className="compare-col">
+                <h3>原始转写稿</h3>
+                <pre>{rawText || "后端尚未返回 paragraphs。"}</pre>
+              </section>
+              <section className="compare-col">
+                <h3>{VERSION_LABELS[version]}</h3>
+                <div className="reading-content" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+              </section>
+            </div>
+          ) : (
+            <div className="reading-body">
+              {firstClassics ? <ClassicalReferenceBlock refItem={firstClassics} onOpen={() => setDrawer({ kind: "classics", item: firstClassics })} /> : null}
+              <div className="reading-content" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+            </div>
+          )}
+        </article>
+
+        <aside className="side-card detail-side">
+          <div className="side-tabs">
+            <button className="active" type="button">知识卡片</button>
+            <button type="button">作文素材</button>
+            <button type="button">复核</button>
+          </div>
+          <ResourceList
+            cards={course.knowledge_cards ?? []}
+            classics={course.classics_refs ?? []}
+            materials={course.writing_materials ?? []}
+            onOpen={setDrawer}
+            reviewFlags={reviewFlags}
+          />
+        </aside>
+      </div>
+      {popover ? <ClassicsPopover refItem={popover} onOpen={() => setDrawer({ kind: "classics", item: popover })} /> : null}
+      <ResourceDrawer drawer={drawer} onClose={() => setDrawer(null)} />
+    </section>
+  );
+}
+
+function ClassicalReferenceBlock({ refItem, onOpen }: { refItem: ClassicsRef; onOpen: () => void }) {
+  return (
+    <aside aria-label="古文旁征博引" className="classical-appreciation-block">
+      <div className="classical-block-head">
+        <span className="classical-label">古文旁征博引</span>
+        <button className="source-stamp" onClick={onOpen} type="button">
+          <i /> 来源：{refItem.source ?? "本地参考库"} ↗
+        </button>
+      </div>
+      <h3>
+        {refItem.title ?? "古文引用"} {refItem.writer ? `· ${refItem.writer}` : ""}
+      </h3>
+      <p className="classical-original">
+        {refItem.canonical_text ?? "暂无 canonical_text"}
+        {refItem.diffs?.map((diff) => (
+          <span className="correction-mark" key={`${diff.raw}-${diff.canonical}`}>
+            {diff.canonical}
+            <sup>原:{diff.raw}</sup>
+          </span>
+        ))}
+      </p>
+      <details className="classical-fold">
+        <summary>展开译文与字词释义</summary>
+        <div className="classical-explain-grid">
+          <div>
+            <h4>白话译文</h4>
+            <p>{refItem.translation ?? "暂无译文"}</p>
+          </div>
+          <div>
+            <h4>重点字词</h4>
+            <p>{refItem.remark ?? "暂无注释"}</p>
+          </div>
+        </div>
+      </details>
+      <p className="teacher-note">{refItem.shangxi ?? "赏析待后端返回。"}</p>
+    </aside>
+  );
+}
+
+function ResourceList({
+  cards,
+  materials,
+  reviewFlags,
+  classics,
+  onOpen,
+}: {
+  cards: KnowledgeCard[];
+  materials: WritingMaterial[];
+  reviewFlags: ReviewFlag[];
+  classics: ClassicsRef[];
+  onOpen: (drawer: DrawerState) => void;
+}) {
+  return (
+    <div className="mini-list">
+      {cards.slice(0, 4).map((card) => (
+        <button className="mini-item" key={card.card_id} onClick={() => onOpen({ kind: "card", item: card })} type="button">
+          <h4>{card.title}</h4>
+          <p>{card.summary ?? "暂无摘要"}</p>
+        </button>
+      ))}
+      {materials.slice(0, 3).map((material) => (
+        <button
+          className="mini-item"
+          key={material.material_id}
+          onClick={() => onOpen({ kind: "material", item: material })}
+          type="button"
+        >
+          <h4>{material.title}</h4>
+          <p>{material.usage_suggestion ?? material.usable_expression ?? "暂无素材说明"}</p>
+        </button>
+      ))}
+      {classics.slice(0, 2).map((item) => (
+        <button
+          className="mini-item"
+          key={item.ref_id ?? `${item.chunk_id}-${item.title ?? ""}`}
+          onClick={() => onOpen({ kind: "classics", item })}
+          type="button"
+        >
+          <h4>{item.title ?? "古文资料"}</h4>
+          <p>{item.canonical_text ?? item.translation ?? "旁征博引资料"}</p>
+        </button>
+      ))}
+      {reviewFlags.slice(0, 4).map((flag) => (
+        <ReviewMark flag={flag} key={flag.flag_id ?? `${flag.text}-${flag.reason}`} />
+      ))}
+      {cards.length + materials.length + reviewFlags.length + classics.length === 0 ? (
+        <p className="muted">后端尚未返回卡片、素材或复核标记。</p>
+      ) : null}
+    </div>
+  );
+}
+
+function AssetsPage({ courses }: { courses: CourseListItem[] }) {
+  return (
+    <section className="asset-page">
+      <p className="page-kicker">知识沉淀</p>
+      <h1 className="page-title">知识资产库</h1>
+      <p className="muted">当前从课程详情 API 的知识卡片、作文素材字段沉淀而来；列表页只展示课程入口。</p>
+      <div className="asset-tabs">
+        <button className="active" type="button">方法卡片库</button>
+        <button type="button">词汇生词本</button>
+        <button type="button">佳句素材册</button>
+      </div>
+      <div className="asset-grid">
+        {courses.length === 0 ? (
+          <article className="asset-card">
+            <h3>等待后端资产数据</h3>
+            <p>上传并处理课程后，知识点和素材会出现在这里。</p>
+          </article>
+        ) : (
+          courses.map((course) => (
+            <article className="asset-card" key={course.course_id}>
+              <h3>{course.title}</h3>
+              <span className="tag">{course.type ?? "课程资产"}</span>
+              <p>{course.subtitle ?? "从课程详情进入可查看知识卡片、作文素材和旁征博引。"}</p>
+              <button
+                className="tiny-button"
+                onClick={() => navigateTo({ name: "detail", courseId: course.course_id })}
+                type="button"
+              >
+                查看来源课程
+              </button>
+            </article>
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
 export function App() {
-  return <main aria-label="TextCore app shell" />;
+  const route = useRoute();
+  const [courses, setCourses] = useState<CourseListItem[]>([]);
+  const [listError, setListError] = useState("");
+  const [upload, setUpload] = useState<UploadState>(INITIAL_UPLOAD_STATE);
+  const [exportTarget, setExportTarget] = useState<{ courseId?: string; version: VersionKey }>({
+    version: DEFAULT_VERSION,
+  });
+  const eventSourceRef = useRef<EventSource | null>(null);
+
+  const refreshCourses = useCallback(() => {
+    listCourses()
+      .then((payload) => {
+        setCourses(payload);
+        setListError("");
+      })
+      .catch((error: unknown) => {
+        setListError(error instanceof Error ? error.message : "课稿列表加载失败");
+      });
+  }, []);
+
+  useEffect(() => {
+    refreshCourses();
+  }, [refreshCourses]);
+
+  useEffect(() => {
+    return () => eventSourceRef.current?.close();
+  }, []);
+
+  const handleUpload = async (file: File) => {
+    eventSourceRef.current?.close();
+    setUpload({
+      status: "uploading",
+      fileName: file.name,
+      progress: 0.06,
+      message: "正在上传 Word...",
+      events: [],
+    });
+    try {
+      const result = await uploadCourse(file);
+      setUpload((current) => ({
+        ...current,
+        status: "processing",
+        courseId: result.course_id,
+        progress: 0.14,
+        message: "上传完成，等待后端处理进度...",
+      }));
+      eventSourceRef.current = subscribeCourseEvents(
+        result.course_id,
+        (event) => {
+          setUpload((current) => ({
+            ...current,
+            status:
+              event.overall_status === "completed"
+                ? "completed"
+                : event.overall_status === "failed"
+                  ? "failed"
+                  : "processing",
+            progress: event.progress ?? current.progress,
+            message: event.message ?? event.stage_label ?? current.message,
+            events: [...current.events, event].slice(-12),
+          }));
+          if (event.overall_status === "completed") {
+            eventSourceRef.current?.close();
+            refreshCourses();
+          }
+        },
+        () => {
+          setUpload((current) => ({
+            ...current,
+            message: "SSE 连接中断，可稍后从课稿库查看结果。",
+          }));
+        },
+      );
+      refreshCourses();
+    } catch (error) {
+      setUpload((current) => ({
+        ...current,
+        status: "failed",
+        progress: 0,
+        message: error instanceof Error ? error.message : "上传失败",
+      }));
+    }
+  };
+
+  const openExport = (courseId: string, version: VersionKey = DEFAULT_VERSION) => {
+    setExportTarget({ courseId, version });
+  };
+
+  const page = useMemo(() => {
+    if (route.name === "courses") {
+      return <CoursesPage courses={courses} error={listError} onExport={openExport} />;
+    }
+    if (route.name === "detail") {
+      return <CourseDetail courseId={route.courseId} onExport={openExport} />;
+    }
+    if (route.name === "assets") {
+      return <AssetsPage courses={courses} />;
+    }
+    return <WorkspacePage courses={courses} onExport={openExport} onUpload={handleUpload} upload={upload} />;
+  }, [courses, listError, route, upload]);
+
+  return (
+    <div className="app-shell">
+      <Topbar active={route.name} />
+      <main aria-label="TextCore app shell" className={`page-container ${route.name === "detail" ? "detail-page-container" : ""}`}>
+        {page}
+      </main>
+      <ExportModal
+        courseId={exportTarget.courseId}
+        onClose={() => setExportTarget({ version: DEFAULT_VERSION })}
+        version={exportTarget.version}
+      />
+    </div>
+  );
 }
