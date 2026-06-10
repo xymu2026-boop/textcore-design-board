@@ -288,7 +288,7 @@ def render_outline(chunks: list[Chunk]) -> str:
         sub = "".join(f"<li>{html.escape(p[:88])}</li>" for p in points)
         items.append(
             f"""
-            <li>
+            <li id="{chunk.chunk_id}" class="outline-chunk">
               <strong>{html.escape(chunk.title)}</strong>
               <span class="chunk-meta">片段 {chunk.chunk_id}｜原段落 {chunk.start_para}-{chunk.end_para}</span>
               <ul>{sub}</ul>
@@ -296,6 +296,17 @@ def render_outline(chunks: list[Chunk]) -> str:
             """
         )
     return f'<section class="long-section"><h2>全文结构提纲</h2><ol class="outline-list">{"".join(items)}</ol></section>'
+
+
+def render_raw_chunk(chunk: Chunk) -> str:
+    paras = "\n".join(f"<p>{html.escape(p)}</p>" for p in chunk.paragraphs)
+    return f"""
+      <section class="raw-chunk">
+        <h2>{html.escape(chunk.title)}</h2>
+        <p class="chunk-meta">原段落 {chunk.start_para}-{chunk.end_para}｜约 {chunk.raw_chars} 字</p>
+        {paras}
+      </section>
+    """
 
 
 def build_sample(sample_id: str, config: dict) -> dict:
@@ -337,6 +348,7 @@ def build_sample(sample_id: str, config: dict) -> dict:
                 "startPara": c.start_para,
                 "endPara": c.end_para,
                 "chars": c.raw_chars,
+                "rawHtml": render_raw_chunk(c),
             }
             for c in chunks
         ],

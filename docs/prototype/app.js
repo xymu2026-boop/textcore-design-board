@@ -25,7 +25,7 @@ const courses = [
     subtitle: "古诗词讲评",
     teacher: "陈老师",
     type: "古诗词",
-    status: "有复核",
+    status: "有待复核",
     updated: "周一 19:44",
     reviewCount: 8,
   },
@@ -502,6 +502,9 @@ let sideTab = "cards";
 let assetTab = "methods";
 let compareMode = false;
 let compactMode = false;
+let currentChunkId = "c01";
+let showAllResources = false;
+let chunkObserver = null;
 
 const app = document.querySelector("#app");
 const topbar = document.querySelector(".topbar");
@@ -564,7 +567,7 @@ function updateNav() {
   document.querySelectorAll("[data-nav]").forEach((link) => {
     link.classList.toggle("active", link.dataset.nav === (route === "detail" ? "courses" : route));
   });
-  topbar.dataset.tone = route === "workspace" ? "red" : "paper";
+  topbar.dataset.tone = "paper";
 }
 
 function render() {
@@ -572,6 +575,7 @@ function render() {
   else if (route === "detail") renderDetail();
   else if (route === "assets") renderAssets();
   else renderWorkspace();
+  setupChunkObserver();
 }
 
 function renderWorkspace() {
@@ -580,21 +584,21 @@ function renderWorkspace() {
       <div class="upload-panel" id="uploadPanel">
         <div>
           <div class="upload-icon">⇧</div>
-          <h1 class="upload-title">将课堂转写 Word<br />拖拽至此上传</h1>
-          <p class="muted">支持 .docx，原型中使用假数据模拟处理流程。</p>
+          <h1 class="upload-title">上传课堂转写 Word<br />生成学习资料</h1>
+          <p class="muted">支持 .docx；生成保真清洗、学习整理和结构提纲。</p>
           <button class="button-primary" data-upload>选择 Word 文件</button>
         </div>
       </div>
       <div>
         <section class="progress-panel">
-          <h2 class="section-heading">处理进度与历史记录</h2>
-          <p class="progress-title">正在清洗：五上寒假第七讲</p>
+          <h2 class="section-heading">最近处理</h2>
+          <p class="progress-title">正在整理：五上寒假第七讲</p>
           <div class="steps" id="steps">
-            ${["练习读写", "教程进度", "知识与新效率", "整理辅导", "整理结果"]
+            ${["解析 Word", "识别课型", "清洗转写稿", "生成学习版", "准备导出"]
               .map((text, index) => `<div class="step ${index < 3 ? "done" : index === 3 ? "current" : ""}"><span>${index < 3 ? "✓" : ""}</span><span>步骤${index + 1}：${text}</span></div>`)
               .join("")}
           </div>
-          <button class="button-secondary" data-go-detail>查看当前整理结果</button>
+          <button class="button-secondary" data-go-detail>查看课稿</button>
         </section>
         <section class="table-panel" style="margin-top:22px">
           <table class="history-table">
@@ -605,7 +609,7 @@ function renderWorkspace() {
                   <td>${course.title}</td>
                   <td>${course.subtitle}</td>
                   <td><span class="tag">${course.status}</span></td>
-                  <td><button class="tiny-button" data-open-course="${course.id}">查看整理结果</button></td>
+                  <td><button class="tiny-button" data-open-course="${course.id}">查看课稿</button></td>
                 </tr>
               `).join("")}
             </tbody>
@@ -622,19 +626,19 @@ function renderCourses() {
       <div class="page-title-row">
         <div>
           <p class="page-kicker">课程资料</p>
-          <h1 class="page-title">课稿列表</h1>
-          <p class="muted">查看已处理课程、处理中任务和需要复核的课稿。</p>
+          <h1 class="page-title">课稿库</h1>
+          <p class="muted">管理已上传、处理中和需要复核的课堂转写稿。</p>
         </div>
         <button class="button-primary" data-route="workspace">上传新课稿</button>
       </div>
       <div class="filter-panel">
         <input class="search-input" placeholder="搜索课程名、老师、课型" />
         <select class="select-input"><option>全部课型</option><option>阅读理解</option><option>作文点评</option><option>文言文</option></select>
-        <select class="select-input"><option>全部状态</option><option>已完成</option><option>处理中</option><option>有复核</option></select>
+        <select class="select-input"><option>全部状态</option><option>已完成</option><option>处理中</option><option>有待复核</option></select>
       </div>
       <section class="table-panel">
         <table class="history-table">
-          <thead><tr><th>课程名</th><th>课型</th><th>状态</th><th>更新时间</th><th>复核</th><th>操作</th></tr></thead>
+          <thead><tr><th>课程名</th><th>课型</th><th>状态</th><th>更新时间</th><th>待复核</th><th>操作</th></tr></thead>
           <tbody>
             ${courses.map((course) => `
               <tr>
@@ -644,7 +648,7 @@ function renderCourses() {
                 <td>${course.updated}</td>
                 <td>${course.reviewCount ? `${course.reviewCount} 条` : "无"}</td>
                 <td>
-                  <button class="tiny-button" data-open-course="${course.id}">查看</button>
+                  <button class="tiny-button" data-open-course="${course.id}">查看课稿</button>
                   <button class="tiny-button" data-export>导出</button>
                 </td>
               </tr>
@@ -661,9 +665,9 @@ function renderDetail() {
   app.innerHTML = `
     <section>
       <div class="detail-breadcrumb">
-        <button class="button-ghost" data-route="courses">← 返回课稿列表</button>
-        <button class="tiny-button" data-open-course="${siblingCourseId("prev")}">上一篇样例</button>
-        <button class="tiny-button" data-open-course="${siblingCourseId("next")}">下一篇样例</button>
+        <button class="button-ghost" data-route="courses">← 返回课稿库</button>
+        <button class="tiny-button" data-open-course="${siblingCourseId("prev")}">上一篇</button>
+        <button class="tiny-button" data-open-course="${siblingCourseId("next")}">下一篇</button>
       </div>
       <div class="detail-header">
         <div>
@@ -673,7 +677,7 @@ function renderDetail() {
             <span class="tag">${lesson.subtitle}</span>
             <span class="tag">原始文件：${lesson.sourceFile}</span>
             <span class="tag">${lesson.stats}</span>
-            <span class="tag">复核标记 ${lesson.reviewCount} 条</span>
+            <span class="tag">待复核 ${lesson.reviewCount} 条</span>
           </div>
         </div>
         <button class="button-primary" data-export>⇩ 导出 Word</button>
@@ -681,17 +685,8 @@ function renderDetail() {
 
       <div class="detail-layout">
         <article class="reading-panel ${compareMode ? "compare-on" : ""}">
-          <section class="source-summary">
-            <p class="page-kicker">流水线试处理样例</p>
-            <p>${lesson.summary}</p>
-          </section>
+          ${renderProcessingOverview(lesson)}
           ${renderLongTools(lesson)}
-          <div class="version-tabs">
-            <button class="${version === "clean" ? "active" : ""}" data-version="clean">保真清洗版</button>
-            <button class="${version === "study" ? "active" : ""}" data-version="study">学习整理版</button>
-            <button class="${version === "outline" ? "active" : ""}" data-version="outline">结构提纲版</button>
-            <button class="${compareMode ? "active" : ""}" data-toggle-compare>原文对照</button>
-          </div>
           ${compareMode ? renderCompare() : `<div class="reading-body ${compactMode ? "compact-long" : ""}"><div class="reading-content">${lesson.versions[version]}</div></div>`}
         </article>
       </div>
@@ -699,64 +694,169 @@ function renderDetail() {
   `;
 }
 
-function renderLongTools(lesson) {
-  if (!lesson.fullStats) return "";
+function renderProcessingOverview(lesson) {
   const stat = lesson.fullStats;
   const timing = lesson.timing;
   return `
-    <section class="long-tools">
-      <div class="metric-grid">
-        <div><strong>${(stat.rawChars / 10000).toFixed(2)} 万</strong><span>原文字数</span></div>
-        <div><strong>${stat.chunks}</strong><span>处理分块</span></div>
-        <div><strong>${timing.totalSeconds}s</strong><span>本地原型耗时</span></div>
-        <div><strong>6-15 分钟</strong><span>正式 AI 预估</span></div>
+    <section class="source-summary">
+      <div>
+        <p class="page-kicker">处理结果概览</p>
+        <p>${lesson.summary}</p>
       </div>
-      <div class="long-actions">
-        <button class="tiny-button" data-toggle-compact>${compactMode ? "展开全文" : "紧凑浏览"}</button>
-        <button class="tiny-button" data-jump-chunk="c01">回到第一段</button>
-        <button class="tiny-button" data-open-resource-panel="cards">知识卡片</button>
-        <button class="tiny-button" data-open-resource-panel="materials">作文素材</button>
-        <button class="tiny-button" data-open-resource-panel="review">复核标记</button>
-        <span>${timing.llmEstimate}</span>
+      ${stat ? `
+        <div class="metric-grid static">
+          <div><strong>${(stat.rawChars / 10000).toFixed(2)} 万</strong><span>原文字数</span></div>
+          <div><strong>${stat.chunks}</strong><span>正文分段</span></div>
+          <div><strong>${timing.totalSeconds}s</strong><span>本地处理耗时</span></div>
+          <div><strong>6-15 分钟</strong><span>AI 精修预计</span></div>
+        </div>
+      ` : ""}
+    </section>
+  `;
+}
+
+function renderLongTools(lesson) {
+  if (!lesson.fullStats) return "";
+  const timing = lesson.timing;
+  const counts = resourceCountsForChunk(lesson, currentChunkId);
+  return `
+    <section class="sticky-control-bar">
+      <div class="version-segment" aria-label="正文版本">
+        <button class="${version === "clean" && !compareMode ? "active" : ""}" data-version="clean">保真清洗</button>
+        <button class="${version === "study" && !compareMode ? "active" : ""}" data-version="study">学习整理</button>
+        <button class="${version === "outline" && !compareMode ? "active" : ""}" data-version="outline">结构提纲</button>
+        <button class="${compareMode ? "active" : ""}" data-toggle-compare>对照原文</button>
       </div>
-      <div class="chunk-toc" id="chunkToc" aria-label="全文分块目录">
+      <div class="control-actions">
+        <details class="chapter-menu">
+          <summary>章节目录 <span class="current-chunk-label">${currentChunkId.toUpperCase()}</span></summary>
+          <div class="chapter-menu-list">
+            ${lesson.chunks.map((chunk) => `
+              <button class="${chunk.id === currentChunkId ? "active" : ""}" data-jump-chunk="${chunk.id}">
+                <strong>${chunk.id.toUpperCase()}</strong><span>${chunk.title}</span>
+              </button>
+            `).join("")}
+          </div>
+        </details>
+        <button class="tiny-button" data-toggle-compact>${compactMode ? "查看完整正文" : "只看段落标题"}</button>
+        <button class="tiny-button resource-button" data-open-resource-panel="cards">知识点 · <span data-resource-count="cards">${counts.cards}</span></button>
+        <button class="tiny-button resource-button" data-open-resource-panel="materials">写作素材 · <span data-resource-count="materials">${counts.materials}</span></button>
+        <button class="tiny-button resource-button" data-open-resource-panel="review">待复核 · <span data-resource-count="review">${counts.review}</span></button>
+      </div>
+      <p class="control-hint">${timing.llmEstimate}</p>
+    </section>
+    <aside class="floating-toc-sidebar" id="chunkToc" aria-label="正文分段导航">
         ${lesson.chunks.map((chunk) => `
-          <button data-jump-chunk="${chunk.id}">
-            <strong>${chunk.id.toUpperCase()}</strong>
-            <span>${chunk.title}</span>
+          <button class="${chunk.id === currentChunkId ? "active" : ""}" data-jump-chunk="${chunk.id}" title="${chunk.title}">
+            <strong>${chunk.id.toUpperCase()}</strong><span>${chunk.title}</span>
           </button>
         `).join("")}
-      </div>
-    </section>
+    </aside>
   `;
 }
 
 function renderCompare() {
   const lesson = activeLesson();
+  const chunk = lesson.chunks?.find((item) => item.id === currentChunkId) || lesson.chunks?.[0];
+  const rightHtml = sectionHtmlForChunk(lesson.versions[version], currentChunkId);
   return `
     <div class="compare-view">
       <section class="compare-col">
-        <h3>原始转写稿片段</h3>
-        <p class="muted">原文对照建议按当前 C 段同步展示。原型先用摘要片段模拟，正式版会按段落 ID 显示同一处理块的原文。</p>
-        ${lesson.rawExcerpt}
+        <h3>原始转写稿｜${(chunk?.id || currentChunkId).toUpperCase()}</h3>
+        <p class="muted">当前只对照正在阅读的正文分段，避免整篇左右滚动错位。</p>
+        ${chunk?.rawHtml || lesson.rawExcerpt}
       </section>
       <section class="compare-col">
-        <h3>当前整理版本</h3>
-        <div class="reading-content">${lesson.versions[version]}</div>
+        <h3>当前整理版｜${versionLabel(version)}</h3>
+        <div class="reading-content">${rightHtml}</div>
       </section>
     </div>
   `;
 }
 
+function versionLabel(value) {
+  return {
+    clean: "保真清洗",
+    study: "学习整理",
+    outline: "结构提纲",
+  }[value] || "学习整理";
+}
+
+function sectionHtmlForChunk(versionHtml, chunkId) {
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = versionHtml;
+  const section = wrapper.querySelector(`#${chunkId}`);
+  return section ? section.outerHTML : versionHtml;
+}
+
+function resourceChunkId(lesson, index, kind) {
+  const chunkIds = lesson.chunks?.map((chunk) => chunk.id) || ["c01"];
+  const presets = {
+    cards: ["c01", "c02", "c03", "c06", "c09"],
+    materials: ["c02", "c04", "c09"],
+    review: ["c01", "c03", "c08", "c09"],
+  };
+  const list = presets[kind] || chunkIds;
+  return list[index % list.length] || chunkIds[index % chunkIds.length] || "c01";
+}
+
+function lessonResources(lesson, kind) {
+  if (kind === "materials") {
+    return lesson.materials.map((item, index) => ({ ...item, kind: "material", chunkId: resourceChunkId(lesson, index, "materials") }));
+  }
+  if (kind === "review") {
+    return lesson.reviewItems.map((text, index) => ({
+      title: text,
+      type: "待复核",
+      summary: "点击定位到相关正文分段，正式版会进一步定位到具体句子。",
+      kind: "review",
+      chunkId: resourceChunkId(lesson, index, "review"),
+    }));
+  }
+  return lesson.cards.map((item, index) => ({ ...item, kind: "card", chunkId: resourceChunkId(lesson, index, "cards") }));
+}
+
+function scopedResources(lesson, kind) {
+  const items = lessonResources(lesson, kind);
+  if (showAllResources) return items;
+  const current = items.filter((item) => item.chunkId === currentChunkId);
+  return current.length ? current : items.slice(0, Math.min(3, items.length));
+}
+
+function resourceCountsForChunk(lesson, chunkId) {
+  return {
+    cards: lessonResources(lesson, "cards").filter((item) => item.chunkId === chunkId).length,
+    materials: lessonResources(lesson, "materials").filter((item) => item.chunkId === chunkId).length,
+    review: lessonResources(lesson, "review").filter((item) => item.chunkId === chunkId).length,
+  };
+}
+
 function renderSideContent() {
   const lesson = activeLesson();
+  const scopeText = showAllResources ? "全文相关" : `${currentChunkId.toUpperCase()} 当前分段`;
   if (sideTab === "materials") {
-    return `<h3>作文素材</h3><div class="mini-list">${lesson.materials.map((item, index) => miniItem(item, index, "material")).join("")}</div>`;
+    const items = scopedResources(lesson, "materials");
+    return `<h3>写作素材 · ${scopeText}</h3><div class="mini-list">${items.map((item, index) => resourceItem(item, index)).join("")}</div>`;
   }
   if (sideTab === "review") {
-    return `<h3>复核标记</h3><div class="mini-list">${lesson.reviewItems.map((text, index) => `<div class="mini-item" data-toast="已定位到复核项 ${index + 1}"><h4>${text}</h4><p>点击后可在正文中查看上下文。</p></div>`).join("")}</div>`;
+    const items = scopedResources(lesson, "review");
+    return `<h3>待复核 · ${scopeText}</h3><div class="mini-list">${items.map((item, index) => resourceItem(item, index)).join("")}</div>`;
   }
-  return `<h3>知识卡片</h3><div class="mini-list">${lesson.cards.map((item, index) => miniItem(item, index, "card")).join("")}</div>`;
+  const items = scopedResources(lesson, "cards");
+  return `<h3>知识点 · ${scopeText}</h3><div class="mini-list">${items.map((item, index) => resourceItem(item, index)).join("")}</div>`;
+}
+
+function resourceItem(item, index) {
+  return `
+    <div class="mini-item resource-item">
+      <div>
+        <h4>${item.title}</h4>
+        <p>${item.summary}</p>
+        <span class="tag">${item.chunkId.toUpperCase()}</span>
+      </div>
+      <button class="tiny-button" data-jump-chunk="${item.chunkId}">定位</button>
+    </div>
+  `;
 }
 
 function miniItem(item, index, kind) {
@@ -772,17 +872,17 @@ function renderAssets() {
   const source = assetTab === "materials" ? allMaterials() : assetTab === "words" ? wordsData() : allCards();
   app.innerHTML = `
     <section class="asset-page">
-      <p class="page-kicker">轻量沉淀</p>
+      <p class="page-kicker">知识沉淀</p>
       <h1 class="page-title">知识资产库</h1>
       <div class="asset-tabs">
-        <button class="${assetTab === "methods" ? "active" : ""}" data-asset-tab="methods">方法卡片库</button>
+        <button class="${assetTab === "methods" ? "active" : ""}" data-asset-tab="methods">知识点库</button>
         <button class="${assetTab === "words" ? "active" : ""}" data-asset-tab="words">词汇生词本</button>
-        <button class="${assetTab === "materials" ? "active" : ""}" data-asset-tab="materials">佳句素材册</button>
+        <button class="${assetTab === "materials" ? "active" : ""}" data-asset-tab="materials">写作素材库</button>
       </div>
       <div class="asset-grid">
         ${source.map((item, index) => `
           <article class="asset-card" data-open-drawer="${assetTab === "materials" ? "material" : "card"}" data-index="${index}">
-            <h3>${assetTab === "words" ? "词：" : assetTab === "materials" ? "素材：" : "卡片："}${item.title}</h3>
+            <h3>${assetTab === "words" ? "词：" : assetTab === "materials" ? "素材：" : "知识点："}${item.title}</h3>
             <span class="tag">${item.type}</span>
             <p><strong>详解：</strong>${item.summary}</p>
             <h4>关键重点</h4>
@@ -834,10 +934,12 @@ function openResourcePanel(tab = "cards") {
   sideTab = tab;
   const drawer = document.querySelector("#infoDrawer");
   const content = document.querySelector("#drawerContent");
+  const title = tab === "materials" ? "写作素材" : tab === "review" ? "待复核" : "知识点";
   content.innerHTML = `
     <p class="page-kicker">关联资源</p>
-    <h2>${tab === "materials" ? "作文素材" : tab === "review" ? "复核标记" : "知识卡片"}</h2>
-    <p class="muted">资源面板不再常驻右侧，避免挤压正文。正式版可按当前 C 段过滤，只显示与正在阅读片段有关的卡片、素材和复核项。</p>
+    <h2>${title}</h2>
+    <p class="muted">默认显示 ${currentChunkId.toUpperCase()} 当前分段相关内容；可切换查看全文资源。</p>
+    <button class="button-secondary resource-scope-toggle" data-toggle-resource-scope>${showAllResources ? "只看当前分段" : "查看全文资源"}</button>
     ${renderSideContent()}
   `;
   drawer.classList.add("open", "wide");
@@ -848,6 +950,40 @@ function closeDrawer() {
   const drawer = document.querySelector("#infoDrawer");
   drawer.classList.remove("open", "wide");
   drawer.setAttribute("aria-hidden", "true");
+}
+
+function setupChunkObserver() {
+  if (chunkObserver) {
+    chunkObserver.disconnect();
+    chunkObserver = null;
+  }
+  if (route !== "detail" || compareMode) return;
+  const sections = [...document.querySelectorAll(".long-section[id], .outline-chunk[id]")];
+  if (!sections.length) return;
+  chunkObserver = new IntersectionObserver((entries) => {
+    const visible = entries
+      .filter((entry) => entry.isIntersecting)
+      .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+    if (!visible?.target?.id || visible.target.id === currentChunkId) return;
+    currentChunkId = visible.target.id;
+    updateChunkContext();
+  }, { rootMargin: "-38% 0px -48% 0px", threshold: [0.12, 0.3, 0.6] });
+  sections.forEach((section) => chunkObserver.observe(section));
+  updateChunkContext();
+}
+
+function updateChunkContext() {
+  const lesson = activeLesson();
+  const counts = resourceCountsForChunk(lesson, currentChunkId);
+  document.querySelectorAll(".current-chunk-label").forEach((node) => {
+    node.textContent = currentChunkId.toUpperCase();
+  });
+  document.querySelectorAll("[data-resource-count='cards']").forEach((node) => { node.textContent = counts.cards; });
+  document.querySelectorAll("[data-resource-count='materials']").forEach((node) => { node.textContent = counts.materials; });
+  document.querySelectorAll("[data-resource-count='review']").forEach((node) => { node.textContent = counts.review; });
+  document.querySelectorAll("[data-jump-chunk]").forEach((node) => {
+    node.classList.toggle("active", node.dataset.jumpChunk === currentChunkId);
+  });
 }
 
 function showToast(message) {
@@ -882,13 +1018,14 @@ function simulateUpload() {
 }
 
 document.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-route], [data-open-course], [data-version], [data-side-tab], [data-asset-tab], [data-toggle-compare], [data-toggle-compact], [data-jump-chunk], [data-jump-toc], [data-open-resource-panel], [data-export], [data-close-modal], [data-open-drawer], [data-close-drawer], [data-upload], [data-go-detail], [data-toast]");
+  const target = event.target.closest("[data-route], [data-open-course], [data-version], [data-side-tab], [data-asset-tab], [data-toggle-compare], [data-toggle-compact], [data-toggle-resource-scope], [data-jump-chunk], [data-jump-toc], [data-open-resource-panel], [data-export], [data-close-modal], [data-open-drawer], [data-close-drawer], [data-upload], [data-go-detail], [data-toast]");
   if (!target) return;
 
   if (target.dataset.route) window.location.hash = `#/${target.dataset.route}`;
   if (target.dataset.openCourse) window.location.hash = `#/courses/${target.dataset.openCourse}`;
   if (target.dataset.version) {
     version = target.dataset.version;
+    compareMode = false;
     renderDetail();
   }
   if (target.dataset.sideTab) {
@@ -907,9 +1044,15 @@ document.addEventListener("click", (event) => {
     compactMode = !compactMode;
     renderDetail();
   }
+  if (target.dataset.toggleResourceScope !== undefined) {
+    showAllResources = !showAllResources;
+    openResourcePanel(sideTab);
+  }
   if (target.dataset.jumpChunk) {
+    currentChunkId = target.dataset.jumpChunk;
     const node = document.querySelector(`#${target.dataset.jumpChunk}`);
     if (node) node.scrollIntoView({ behavior: "smooth", block: "start" });
+    updateChunkContext();
   }
   if (target.dataset.jumpToc !== undefined) {
     const node = document.querySelector("#chunkToc");
@@ -930,7 +1073,13 @@ document.querySelector("#exportModal").addEventListener("click", (event) => {
 
 window.addEventListener("hashchange", () => {
   route = parseHash();
-  currentCourseId = getCourseIdFromHash() || currentCourseId || "sample-classical";
+  const nextCourseId = getCourseIdFromHash() || currentCourseId || "sample-classical";
+  if (nextCourseId !== currentCourseId) {
+    currentChunkId = "c01";
+    showAllResources = false;
+    compareMode = false;
+  }
+  currentCourseId = nextCourseId;
   updateNav();
   render();
 });
