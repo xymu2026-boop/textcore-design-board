@@ -19,7 +19,14 @@ from textcore.contracts.course_state import (
 )
 from textcore.llm import LLMClient
 from textcore.pipeline.events import StatusEventBroker, make_status_event
-from textcore.pipeline.stages import s4_clean, s5_classics, s6_merge, s7_versions, s8_extract
+from textcore.pipeline.stages import (
+    s4_clean,
+    s5_classics,
+    s6_merge,
+    s7_versions,
+    s8_extract,
+    s9_quality,
+)
 from textcore.pipeline.stages.s0_parse import parse_docx
 from textcore.pipeline.stages.s1_preclean import preclean
 from textcore.pipeline.stages.s2_segment import segment
@@ -134,12 +141,12 @@ async def run_fake_pipeline(
                 )
                 model_calls.extend(calls)
             elif stage == "S9":
-                review_flags = _aggregate_review_flags(
+                review_flags, quality = s9_quality.run(
                     chunk_results=chunk_results,
                     classics_refs=classics_refs,
                     global_result=global_result,
+                    versions=versions,
                 )
-                quality = _quality(review_flags)
 
             ended_at = _now_iso()
             stage_log.append(
@@ -322,75 +329,6 @@ def _stage_note(
     if stage == "S10":
         return "validated and saved course state"
     return "done"
-
-
-def _aggregate_review_flags(
-    *,
-    chunk_results: list[dict[str, Any]],
-    classics_refs: list[dict[str, Any]],
-    global_result: dict[str, Any],
-) -> list[dict[str, Any]]:
-    flags: list[dict[str, Any]] = []
-    for chunk_result in chunk_results:
-        for flag in chunk_result.get("review_flags", []):
-            flags.append(_with_flag_defaults(flag, chunk_result["chunk_id"], len(flags) + 1))
-    for flag in global_result.get("merged_review_flags", []):
-        flags.append(_with_flag_defaults(flag, flag.get("chunk_id", ""), len(flags) + 1))
-    for ref in classics_refs:
-        for diff in ref.get("diffs", []):
-            flag = {
-                "pid": diff.get("pid", ""),
-                "chunk_id": ref["chunk_id"],
-                "text": diff["raw"],
-                "suggestion": diff["canonical"],
-                "reason": "S5 classics reference diff",
-                "category": "classical_typo",
-                "severity": "medium",
-                "status": "open",
-            }
-            flags.append(_with_flag_defaults(flag, ref["chunk_id"], len(flags) + 1))
-    return _dedupe_flags(flags)
-
-
-def _with_flag_defaults(flag: dict[str, Any], chunk_id: str, index: int) -> dict[str, Any]:
-    out = dict(flag)
-    out.setdefault("flag_id", f"rf_{index:03d}")
-    if chunk_id:
-        out.setdefault("chunk_id", chunk_id)
-    out.setdefault("category", "other")
-    out.setdefault("severity", "medium")
-    out.setdefault("status", "open")
-    return {key: value for key, value in out.items() if value != ""}
-
-
-def _dedupe_flags(flags: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    seen: set[tuple[Any, ...]] = set()
-    deduped: list[dict[str, Any]] = []
-    for flag in flags:
-        key = (
-            flag.get("pid"),
-            flag.get("chunk_id"),
-            flag.get("text"),
-            flag.get("suggestion"),
-            flag.get("reason"),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        flag["flag_id"] = f"rf_{len(deduped) + 1:03d}"
-        deduped.append(flag)
-    return deduped
-
-
-def _quality(review_flags: list[dict[str, Any]]) -> dict[str, Any]:
-    high_count = sum(1 for flag in review_flags if flag.get("severity") == "high")
-    score = max(0, 92 - high_count * 12 - len(review_flags) * 3)
-    return {
-        "quality_score": score,
-        "coverage": "good" if score >= 75 else "fair",
-        "main_risks": [flag["reason"] for flag in review_flags[:5]],
-        "recommended_human_review": bool(review_flags),
-    }
 
 
 def _total_tokens(model_calls: list[dict[str, Any]]) -> int:

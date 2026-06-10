@@ -653,7 +653,7 @@ function ExportModal({
   onClose: () => void;
 }) {
   const [format, setFormat] = useState("printable");
-  const [sections, setSections] = useState(["summary", "current_version", "cards", "materials", "classics", "review"]);
+  const [sections, setSections] = useState(["summary", "concise", "cards", "materials", "review"]);
   const [message, setMessage] = useState("");
 
   if (!courseId) return null;
@@ -682,12 +682,11 @@ function ExportModal({
 
   const sectionOptions = [
     ["summary", "课程摘要"],
-    ["current_version", VERSION_LABELS[version]],
+    ...VERSION_TIERS.map((tier) => [tier.key, tier.label]),
     ["cards", "知识点"],
     ["materials", "写作素材"],
     ["classics", "旁征博引资料"],
     ["review", "待复核"],
-    ["raw", "对照原文"],
   ];
 
   return (

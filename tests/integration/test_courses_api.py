@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import io
 import json
 from collections.abc import Iterator
 from pathlib import Path
 
+from docx import Document
 from fastapi.testclient import TestClient
 
 import apps.api.main as api_main
@@ -68,13 +70,22 @@ def test_upload_list_detail_events_and_export(tmp_path: Path, monkeypatch) -> No
             assert events[-1]["stage"] == "S10"
             assert events[-1]["overall_status"] == "completed"
 
-            export = client.post(f"/api/courses/{course_id}/export")
+            export = client.post(
+                f"/api/courses/{course_id}/export",
+                json={"sections": ["summary", "concise", "review"], "format": "printable"},
+            )
             assert export.status_code == 200
             assert export.content.startswith(b"PK")
             assert (
                 export.headers["content-type"]
                 == "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
             )
+            exported_doc = Document(io.BytesIO(export.content))
+            exported_text = "\n".join(paragraph.text for paragraph in exported_doc.paragraphs)
+            assert "课程摘要" in exported_text
+            assert "精简整理" in exported_text
+            assert "复核标记" in exported_text
+            assert "保真清洗" not in exported_text
     finally:
         app.dependency_overrides.clear()
 

@@ -5,7 +5,7 @@ VENV := .venv
 VENV_PYTHON := $(VENV)/bin/python
 PIP := $(VENV)/bin/pip
 
-.PHONY: install dev check check-web check-api
+.PHONY: install dev check check-web check-api regression
 
 install:
 	$(PYTHON) -m venv --system-site-packages --clear $(VENV)
@@ -27,3 +27,6 @@ check-web:
 check-api:
 	$(VENV_PYTHON) scripts/check_api.py
 	$(VENV_PYTHON) -m pytest
+
+regression:
+	$(VENV_PYTHON) -m pytest tests/regression

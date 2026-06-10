@@ -9,8 +9,13 @@
 - **第四步 后端存储+API（Codex T002）**：✅ 完成。SQLite + FastAPI(upload/list/detail/SSE/export) + 假流水线。Claude 验收：真实 docx 端到端 ✓（上传→列表→详情四档→导出合法Word）
 - **第五步 前端 React 迁移（Codex T003）**：✅ 完成。demo→React，四档tab/古文引用/复核标记/抽屉，接 API。npm check+build ✓
 - 🏁 **M1 里程碑达成**：真实前后端跑通假数据闭环。make check ✓ 9 passed
-- **第六步 确定性流水线 S0–S3（Codex）/ 第七步 古文参考服务（Claude）**：⏭️ 下一步
-- 遗留：前端用 History API 路由（react-router-dom 待网络可用补）；知识资产页待后端资产 API
+- **第六步 确定性流水线 S0–S3（Codex T004）**：✅ 完成。醉叟传 179段→17块，文言文span保留。提交 `8a5603f`
+- **第七步 古文参考服务（Claude）**：✅ 完成。chinese-gushiwen 1万篇建库 + 三级匹配 + 错字diff。提交 `f5c1356`
+- **第八步 LLM 流水线 S4–S8**：✅ 完成。真跑醉叟传 55s：四档 9000/3800/1100/600字 + 20卡片 + 10素材 + 古文命中《关雎》 + 24复核。提交 2aabf9c。🏁 M2 真实样本端到端达成
+- **第九步 质检+Word导出+回归**：⏭️ 下一步（Codex）
+- **Phase 7.5 真实端到端验收**：⏭️ 你的重点验收门
+- 遗留：前端 History API 路由（待补 react-router-dom）；知识资产页待后端资产 API；古文全量库在 data/(gitignore)，重建跑 build_db
+- make check ✓ 15 passed
 
 ## 分工
 - Claude Code：架构 + 要害模块（数据契约/Schema、流水线 runner、LLM 适配器、古文匹配、回归框架）+ 调度 Codex + 审查每个 diff。

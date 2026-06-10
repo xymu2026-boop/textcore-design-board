@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-import io
 import json
 import uuid
-import zipfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
-from html import escape
 from typing import Annotated
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
+from pydantic import BaseModel, Field
 
 from textcore.config import load_env
 from textcore.contracts.course_state import validate
+from textcore.exporters.docx_export import DEFAULT_EXPORT_SECTIONS, export_course_docx
 from textcore.pipeline.events import StatusEventBroker
 from textcore.pipeline.runner import run_fake_pipeline
 from textcore.storage import CourseNotFoundError, CourseRepository
@@ -51,6 +50,12 @@ def get_repository() -> CourseRepository:
 
 def get_event_broker() -> StatusEventBroker:
     return event_broker
+
+
+class ExportRequest(BaseModel):
+    sections: list[str] = Field(default_factory=lambda: list(DEFAULT_EXPORT_SECTIONS))
+    format: str = "printable"
+    version: str | None = None
 
 
 @app.get("/health")
@@ -122,6 +127,7 @@ async def course_events(
 def export_course(
     course_id: str,
     repo: Annotated[CourseRepository, Depends(get_repository)],
+    payload: ExportRequest | None = None,
 ) -> Response:
     try:
         state = repo.get_state(course_id)
@@ -129,7 +135,13 @@ def export_course(
         raise HTTPException(status_code=404, detail="course not found") from exc
 
     filename = f"{course_id}.docx"
-    content = _placeholder_docx_bytes(state["source"]["file"])
+    request = payload or ExportRequest()
+    content = export_course_docx(
+        state,
+        sections=request.sections,
+        export_format=request.format,
+        current_version=request.version,
+    )
     return Response(
         content=content,
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -140,42 +152,3 @@ def export_course(
 def _new_course_id() -> str:
     year = datetime.now(UTC).year
     return f"course_{year}_{uuid.uuid4().hex[:8]}"
-
-
-def _placeholder_docx_bytes(source_filename: str) -> bytes:
-    safe_source_filename = escape(source_filename)
-    document_xml = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
-  <w:body>
-    <w:p>
-      <w:r><w:t>TextCore placeholder export for {safe_source_filename}</w:t></w:r>
-    </w:p>
-    <w:sectPr/>
-  </w:body>
-</w:document>
-"""
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as docx:
-        docx.writestr(
-            "[Content_Types].xml",
-            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
-  <Default Extension="xml" ContentType="application/xml"/>
-  <Override PartName="/word/document.xml"
-    ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
-</Types>
-""",
-        )
-        docx.writestr(
-            "_rels/.rels",
-            """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-  <Relationship Id="rId1"
-    Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument"
-    Target="word/document.xml"/>
-</Relationships>
-""",
-        )
-        docx.writestr("word/document.xml", document_xml)
-    return buffer.getvalue()
