@@ -87,15 +87,16 @@ class MockProvider:
         return LLMResult(text=self.handler(system, user), model=model)
 
 
-# 阶段→模型路由（省钱：粗活便宜，全局判断用强模型）。第一版都走 deepseek-chat。
+# 阶段→模型路由（省钱：粗活用 flash，判断重的用 pro）。
+# 可用模型：deepseek-v4-pro（强）/ deepseek-v4-flash（便宜）。
 STAGE_MODEL = {
-    "S2": "deepseek-chat",
-    "S4": "deepseek-chat",
-    "S6": "deepseek-chat",
-    "S7": "deepseek-chat",
-    "S8": "deepseek-chat",
+    "S2": "deepseek-v4-flash",  # 话题分割：分类，便宜
+    "S4": "deepseek-v4-flash",  # 分块清洗：~17 次，便宜
+    "S6": "deepseek-v4-pro",    # 全局合并：判断
+    "S7": "deepseek-v4-pro",    # 四档版本：作文点评最吃判断
+    "S8": "deepseek-v4-pro",    # 卡片/素材
 }
-DEFAULT_MODEL = "deepseek-chat"
+DEFAULT_MODEL = "deepseek-v4-pro"
 
 
 class LLMClient:

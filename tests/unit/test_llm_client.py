@@ -22,7 +22,7 @@ def test_valid_json_passes_first_try():
     client = LLMClient(MockProvider(lambda s, u: json.dumps(payload, ensure_ascii=False)))
     obj, res = client.complete_json("sys", "user", SCHEMA, stage="S4")
     assert obj == payload
-    assert res.model == "deepseek-chat"
+    assert res.model == "deepseek-v4-flash"
 
 
 def test_retries_on_bad_then_good():
