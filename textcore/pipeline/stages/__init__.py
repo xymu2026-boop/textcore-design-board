@@ -1,1 +1,1 @@
-"""Pipeline stage placeholders."""
+"""Deterministic front-stage pipeline functions."""

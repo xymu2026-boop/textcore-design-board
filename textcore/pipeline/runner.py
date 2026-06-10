@@ -1,4 +1,4 @@
-"""Fake S0-S10 pipeline runner for the API placeholder loop."""
+"""S0-S3 deterministic pipeline runner with S4-S10 placeholders."""
 
 from __future__ import annotations
 
@@ -17,6 +17,10 @@ from textcore.contracts.course_state import (
     validate,
 )
 from textcore.pipeline.events import StatusEventBroker, make_status_event
+from textcore.pipeline.stages.s0_parse import parse_docx
+from textcore.pipeline.stages.s1_preclean import preclean
+from textcore.pipeline.stages.s2_segment import segment
+from textcore.pipeline.stages.s3_chunk import chunk, infer_course_types
 from textcore.storage import CourseRepository
 
 STAGE_SLEEP_SECONDS = 0.03
@@ -30,10 +34,14 @@ async def run_fake_pipeline(
     source_filename: str,
     source_path: Path,
 ) -> None:
-    """Generate a valid course_state from the frozen example and emit progress."""
+    """Run deterministic S0-S3, then wrap S4-S10 with valid placeholder outputs."""
 
     repository.update_status(course_id, "processing")
     stage_log: list[dict[str, Any]] = []
+    s0_result: dict[str, Any] = {"paragraphs": [], "detected_meta": {}}
+    preclean_items: list[dict[str, Any]] = []
+    segment_items: list[dict[str, Any]] = []
+    chunk_items: list[dict[str, Any]] = []
 
     for index, stage in enumerate(STAGES):
         started_at = _now_iso()
@@ -48,6 +56,14 @@ async def run_fake_pipeline(
             )
         )
         await asyncio.sleep(STAGE_SLEEP_SECONDS)
+        if stage == "S0":
+            s0_result = parse_docx(source_path, source_filename)
+        elif stage == "S1":
+            preclean_items = preclean(s0_result["paragraphs"])
+        elif stage == "S2":
+            segment_items = segment(s0_result["paragraphs"])
+        elif stage == "S3":
+            chunk_items = chunk(s0_result["paragraphs"], segment_items)
         ended_at = _now_iso()
         stage_log.append(
             {
@@ -55,7 +71,7 @@ async def run_fake_pipeline(
                 "status": "done",
                 "started_at": started_at,
                 "ended_at": ended_at,
-                "note": "fake pipeline placeholder",
+                "note": _stage_note(stage, s0_result, preclean_items, segment_items, chunk_items),
             }
         )
         is_final = stage == STAGES[-1]
@@ -66,6 +82,10 @@ async def run_fake_pipeline(
                 source_path=source_path,
                 stage_log=stage_log,
                 data_dir=repository.data_dir,
+                s0_result=s0_result,
+                preclean_items=preclean_items,
+                segment_items=segment_items,
+                chunk_items=chunk_items,
             )
             repository.save_state(state)
         await events.publish(
@@ -87,14 +107,24 @@ def _build_fake_state(
     source_path: Path,
     stage_log: list[dict[str, Any]],
     data_dir: Path,
+    s0_result: dict[str, Any],
+    preclean_items: list[dict[str, Any]],
+    segment_items: list[dict[str, Any]],
+    chunk_items: list[dict[str, Any]],
 ) -> dict[str, Any]:
     state = deepcopy(load_example())
     state["course_id"] = course_id
     state["schema_version"] = SCHEMA_VERSION
     state["status"] = "completed"
     state["source"]["file"] = source_filename
-    state["source"]["stored_path"] = str(source_path.relative_to(data_dir))
+    state["source"]["stored_path"] = _relative_path(source_path, data_dir)
     state["source"]["imported_at"] = _now_iso()
+    state["source"]["detected_meta"] = s0_result["detected_meta"]
+    state["course_types"] = infer_course_types(segment_items)
+    state["paragraphs"] = s0_result["paragraphs"]
+    state["preclean"] = preclean_items
+    state["segments"] = segment_items
+    state["chunks"] = chunk_items
     state["versions"] = {key: state["versions"][key] for key in VERSION_KEYS}
     state["default_version"] = DEFAULT_VERSION
     state["processing_log"] = {
@@ -104,6 +134,33 @@ def _build_fake_state(
     }
     validate(state)
     return state
+
+
+def _stage_note(
+    stage: str,
+    s0_result: dict[str, Any],
+    preclean_items: list[dict[str, Any]],
+    segment_items: list[dict[str, Any]],
+    chunk_items: list[dict[str, Any]],
+) -> str:
+    if stage == "S0":
+        return f"parsed {len(s0_result['paragraphs'])} paragraphs"
+    if stage == "S1":
+        labeled = sum(1 for item in preclean_items if item["labels"])
+        return f"preclean labels on {labeled} paragraphs"
+    if stage == "S2":
+        boundaries = sum(1 for item in segment_items if item["is_boundary"])
+        return f"segmented {len(segment_items)} paragraphs, {boundaries} boundaries"
+    if stage == "S3":
+        return f"built {len(chunk_items)} chunks"
+    return "placeholder stage using frozen example"
+
+
+def _relative_path(path: Path, root: Path) -> str:
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
 
 
 def _now_iso() -> str:
