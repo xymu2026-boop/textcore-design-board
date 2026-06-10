@@ -1,0 +1,177 @@
+{
+  "course_id": "course_2026_0001",
+  "schema_version": "1.0",
+  "status": "completed",
+  "source": {
+    "file": "五上-人文综合涵养-寒假-第三讲-隐显-偷钱+第四讲-文言文-醉叟传1.docx",
+    "stored_path": "uploads/course_2026_0001/source.docx",
+    "imported_at": "2026-06-10T12:00:00+08:00",
+    "detected_meta": {
+      "course_title": "五上寒假 第三/四讲 隐显·偷钱 + 文言文·醉叟传",
+      "teacher": "张老师",
+      "date": "",
+      "student_group": "五上",
+      "content_type_candidates": ["现代文阅读", "文言文"]
+    }
+  },
+  "course_types": {
+    "types": [
+      { "type": "modern_reading", "confidence": 0.82 },
+      { "type": "classical_chinese", "confidence": 0.71 }
+    ],
+    "dominant_type": "modern_reading",
+    "mixed": true
+  },
+  "paragraphs": [
+    { "pid": "p0001", "text": "今天进入第三讲，大主题叫「隐显」。", "speaker": "陈细影", "ts": "00:00:09", "style": "Normal", "source_order": 1 },
+    { "pid": "p0210", "text": "这个罪首者，不知何地人。", "speaker": "陈细影", "ts": "01:12:30", "style": "Normal", "source_order": 210 }
+  ],
+  "preclean": [
+    { "pid": "p0038", "labels": ["classroom_management", "delete_by_default"], "risk": "low" }
+  ],
+  "segments": [
+    { "pid": "p0001", "segment_type": "讲解", "is_boundary": true },
+    { "pid": "p0210", "segment_type": "文言文原文", "is_boundary": true }
+  ],
+  "chunks": [
+    {
+      "chunk_id": "c001",
+      "paragraph_range": ["p0001", "p0042"],
+      "primary_type": "modern_reading",
+      "context_before": "",
+      "must_preserve_spans": []
+    },
+    {
+      "chunk_id": "c007",
+      "paragraph_range": ["p0205", "p0240"],
+      "primary_type": "classical_chinese",
+      "context_before": "上一段讲完《偷钱》的明线暗线，转入文言文《醉叟传》。",
+      "must_preserve_spans": [
+        { "text": "醉叟者，不知何地人，亦不言其姓字，以其常醉，呼曰「醉叟」。", "reason": "classical_text" }
+      ]
+    }
+  ],
+  "chunk_results": [
+    {
+      "chunk_id": "c007",
+      "cleaned_text": "课程后半进入第四讲文言文，老师介绍作者袁宏道并开讲《醉叟传》第一段……",
+      "key_points": ["袁宏道是晚明公安派代表", "醉叟以常醉得名，开头制造神秘感"],
+      "student_answer_kept": [],
+      "review_flags": [
+        { "pid": "p0210", "text": "罪首", "suggestion": "醉叟", "reason": "疑似转写错误，应为篇名人物", "category": "classical_typo", "severity": "medium", "status": "open" }
+      ],
+      "entities": { "persons": ["袁宏道"], "works": ["醉叟传"], "concepts": ["人物传记开头"] },
+      "classics_candidates": [
+        { "title": "醉叟传", "writer": "袁宏道", "raw_span": "罪首者，不知何地人", "kind": "classical", "confidence": 0.78 }
+      ]
+    }
+  ],
+  "classics_refs": [
+    {
+      "ref_id": "ref_001",
+      "chunk_id": "c007",
+      "matched": true,
+      "source": "gushiwen",
+      "title": "醉叟传",
+      "writer": "袁宏道",
+      "dynasty": "明代",
+      "canonical_text": "醉叟者，不知何地人，亦不言其姓字，以其常醉，呼曰「醉叟」。",
+      "translation": "醉叟这个人，不知是哪里人，也不说自己的姓名字号，因为他常醉，人们就称他「醉叟」。",
+      "remark": "叟：年老男子。以：因为。呼曰：称呼为。",
+      "shangxi": "开篇以「不知姓字」制造神秘感，为人物传记蓄势。",
+      "diffs": [
+        { "pid": "p0210", "raw": "罪首", "canonical": "醉叟" }
+      ],
+      "confidence": 0.91,
+      "ref_url": "https://www.gushiwen.cn/"
+    }
+  ],
+  "global": {
+    "course_summary": "阅读讲评 + 文言文开篇的混合课：前半《偷钱》讲明线暗线与家庭教育，后半《醉叟传》讲作者背景与第一段字词。",
+    "outline_tree": [
+      {
+        "title": "一、《偷钱》：明线、暗线与犯错后的教育",
+        "level": 2,
+        "anchor": "c001",
+        "chunk_ids": ["c001"],
+        "children": [
+          { "title": "1. 什么是线索", "level": 3, "anchor": "c001", "chunk_ids": ["c001"], "children": [] }
+        ]
+      },
+      {
+        "title": "二、文言文《醉叟传》：人物传记的开头",
+        "level": 2,
+        "anchor": "c007",
+        "chunk_ids": ["c007"],
+        "children": []
+      }
+    ],
+    "main_themes": ["明线暗线", "犯错教育", "人物传记写法"],
+    "merged_review_flags": []
+  },
+  "versions": {
+    "faithful": { "body_md": "<h2>一、《偷钱》……</h2><p>本讲先进入第三讲「隐显」……</p>", "compression": 0.78, "char_count": 26800 },
+    "concise":  { "body_md": "## 课程摘要\n这是一节阅读讲评+文言文开篇的混合课……", "compression": 0.31, "char_count": 10600 },
+    "study":    { "body_md": "## 要点\n- 线索=明线+暗线……", "compression": 0.09, "char_count": 3100 },
+    "outline":  { "body_md": "- 一、《偷钱》明线暗线\n- 二、《醉叟传》人物传记开头", "compression": 0.05, "char_count": 1600 }
+  },
+  "default_version": "concise",
+  "knowledge_cards": [
+    {
+      "card_id": "kc_001",
+      "title": "明线与暗线",
+      "type": "method",
+      "summary": "明线是表面可见的事件发展，暗线是隐藏在背后的心理或主题推进。",
+      "core_points": ["明线=事件", "暗线=心理/主题"],
+      "example": "《偷钱》明线是偷钱事件，暗线是孩子心理与家庭教育。",
+      "related_persons": [],
+      "related_themes": ["阅读方法", "文章结构"],
+      "source_chunks": ["c001"],
+      "confidence": 0.88
+    },
+    {
+      "card_id": "kc_002",
+      "title": "《醉叟传》",
+      "type": "work",
+      "summary": "袁宏道所作人物传记，写一位以常醉得名的奇人。",
+      "core_points": ["晚明公安派", "人物传记开头制造神秘感"],
+      "related_persons": ["袁宏道"],
+      "related_themes": ["人物传记", "豪侠奇人"],
+      "source_chunks": ["c007"],
+      "classics_ref_id": "ref_001",
+      "confidence": 0.9
+    }
+  ],
+  "writing_materials": [
+    {
+      "material_id": "wm_001",
+      "title": "犯错后的爱与宽容",
+      "theme": ["成长", "家庭", "宽容"],
+      "source": "课堂阅读讲评",
+      "usable_expression": "父亲把乒乓球拍放在枕边，说「又不是不给他钱，一定要偷，多难为情」。",
+      "teacher_comment": "严厉惩罚未必让人反思，爱与包容反而给孩子面对错误的空间。",
+      "usage_suggestion": "适合写成长、亲情、宽容类作文。",
+      "source_chunks": ["c001"],
+      "risk": "low"
+    }
+  ],
+  "review_flags": [
+    { "flag_id": "rf_001", "pid": "p0210", "chunk_id": "c007", "text": "罪首", "suggestion": "醉叟", "reason": "转写稿多处写作罪首/最手，据权威原文应为醉叟", "category": "classical_typo", "severity": "medium", "status": "open" }
+  ],
+  "quality": {
+    "quality_score": 84,
+    "coverage": "good",
+    "main_risks": ["《醉叟传》部分转写错字已据古诗文网校正并标记"],
+    "recommended_human_review": true
+  },
+  "processing_log": {
+    "stages": [
+      { "stage": "S0", "status": "done", "started_at": "2026-06-10T12:00:01+08:00", "ended_at": "2026-06-10T12:00:03+08:00" },
+      { "stage": "S5", "status": "done", "note": "命中 1 篇，错字 diff 1 处" }
+    ],
+    "model_calls": [
+      { "stage": "S4", "model": "deepseek-chat", "prompt_tokens": 4200, "completion_tokens": 1800, "cost_usd": 0.004 }
+    ],
+    "cost": { "total_usd": 0.18, "total_tokens": 92000 }
+  }
+}
