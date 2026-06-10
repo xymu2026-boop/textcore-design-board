@@ -16,10 +16,13 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 
+from textcore.config import load_env
 from textcore.contracts.course_state import validate
 from textcore.pipeline.events import StatusEventBroker
 from textcore.pipeline.runner import run_fake_pipeline
 from textcore.storage import CourseNotFoundError, CourseRepository
+
+load_env()  # 读 .env.local（DEEPSEEK_API_KEY 等），密钥不入库
 
 repository = CourseRepository()
 event_broker = StatusEventBroker()

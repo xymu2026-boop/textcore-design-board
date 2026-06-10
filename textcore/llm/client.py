@@ -125,10 +125,21 @@ class LLMClient:
         """返回 (校验通过的 dict, LLMResult)。不合 Schema 则带错误反馈重试。"""
         mdl = model or self.model_for(stage)
         validator = jsonschema.Draft202012Validator(schema)
+        # DeepSeek 只有 json_object 模式（无 json_schema 强约束），把 Schema 显式喂进
+        # system，并强调：只用 Schema 里的键、不加额外键、数组必须是数组(空则 [])。
+        sys_with_schema = (
+            f"{system}\n\n"
+            "## 输出必须严格符合以下 JSON Schema\n"
+            f"```json\n{json.dumps(schema, ensure_ascii=False)}\n```\n"
+            "硬性要求：(1) 只用 Schema 中定义的键，禁止出现额外键(additionalProperties=false)；"
+            "(2) 键名与 Schema 完全一致（如 entities 下只有 persons/works/concepts，均为复数）；"
+            "(3) 凡 array 字段必须输出 JSON 数组，没有内容用 []，绝不用 false/null/字符串；"
+            "(4) 只输出 JSON 本体，不要 Markdown 包裹、不要解释。"
+        )
         cur_user = user
         last_err = ""
         for _attempt in range(1, max_retries + 1):
-            res = self.provider.chat(system, cur_user, model=mdl, json_mode=True)
+            res = self.provider.chat(sys_with_schema, cur_user, model=mdl, json_mode=True)
             try:
                 obj = json.loads(res.text)
             except json.JSONDecodeError as e:
