@@ -1,0 +1,7 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://textcore.local/schemas/course_state.schema.json",
+  "title": "TextCore Course State Placeholder",
+  "description": "Placeholder only. Phase 1 will define the frozen course_state contract.",
+  "type": "object"
+}
