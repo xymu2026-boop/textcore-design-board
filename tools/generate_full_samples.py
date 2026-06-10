@@ -210,6 +210,97 @@ def important_sentences(paragraphs: list[str], limit: int = 8) -> list[str]:
     return selected
 
 
+def sentence_score(sentence: str, position: int) -> int:
+    keywords = [
+        "第一",
+        "第二",
+        "第三",
+        "重点",
+        "核心",
+        "注意",
+        "所以",
+        "说明",
+        "意味着",
+        "作用",
+        "方法",
+        "题型",
+        "答题",
+        "概括",
+        "赏析",
+        "引用",
+        "比喻",
+        "明线",
+        "暗线",
+        "线索",
+        "母亲",
+        "父亲",
+        "祖母",
+        "宽容",
+        "教育",
+        "醉叟",
+        "袁宏道",
+        "文言文",
+        "作文",
+        "语言",
+    ]
+    score = sum(2 for kw in keywords if kw in sentence)
+    if 22 <= len(sentence) <= 150:
+        score += 2
+    if position <= 2:
+        score += 1
+    if sentence.startswith("[转写噪声"):
+        score -= 6
+    return score
+
+
+def medium_digest_sentences(chunk: Chunk, ratio: float = 0.33) -> list[str]:
+    candidates: list[tuple[int, int, str]] = []
+    order = 0
+    for para in chunk.paragraphs:
+        sentences = sentence_split(para)
+        for sentence_index, sentence in enumerate(sentences, start=1):
+            order += 1
+            score = sentence_score(sentence, sentence_index)
+            if score > 0:
+                candidates.append((score, order, sentence))
+
+    target_chars = max(760, int(chunk.raw_chars * ratio))
+    selected_orders: set[int] = set()
+    selected_chars = 0
+
+    for score, order_index, sentence in sorted(candidates, key=lambda item: (-item[0], item[1])):
+        if order_index in selected_orders:
+            continue
+        if selected_chars >= target_chars:
+            break
+        selected_orders.add(order_index)
+        selected_chars += len(sentence)
+
+    if selected_chars < target_chars * 0.82:
+        for _, order_index, sentence in candidates:
+            if order_index in selected_orders:
+                continue
+            selected_orders.add(order_index)
+            selected_chars += len(sentence)
+            if selected_chars >= target_chars:
+                break
+
+    if not selected_orders:
+        fallback = []
+        total = 0
+        for para in chunk.paragraphs:
+            if para.startswith("[转写噪声"):
+                continue
+            fallback.append(para)
+            total += len(para)
+            if total >= target_chars:
+                break
+        return fallback
+
+    ordered = [sentence for _, order_index, sentence in candidates if order_index in selected_orders]
+    return ordered
+
+
 def review_flags(sample_id: str, chunks: list[Chunk]) -> list[str]:
     joined = "\n".join("\n".join(c.paragraphs) for c in chunks)
     flags = []
@@ -256,6 +347,28 @@ def render_clean(chunks: list[Chunk]) -> str:
               <h2>{html.escape(chunk.title)}</h2>
               <p class="chunk-meta">片段 {chunk.chunk_id}｜原段落 {chunk.start_para}-{chunk.end_para}｜约 {chunk.raw_chars} 字</p>
               {paras}
+              {chunk_footer(index, chunks)}
+            </section>
+            """
+        )
+    return "\n".join(sections)
+
+
+def render_digest(chunks: list[Chunk]) -> str:
+    sections = []
+    for index, chunk in enumerate(chunks):
+        points = medium_digest_sentences(chunk)
+        grouped = []
+        for start in range(0, len(points), 3):
+            text = "".join(points[start : start + 3])
+            grouped.append(f"<p>{html.escape(text)}</p>")
+        body = "\n".join(grouped)
+        sections.append(
+            f"""
+            <section class="long-section" id="{chunk.chunk_id}">
+              <h2>{html.escape(chunk.title)}</h2>
+              <p class="chunk-meta">精简整理｜覆盖原段落 {chunk.start_para}-{chunk.end_para}｜约保留 30%-35%</p>
+              {body}
               {chunk_footer(index, chunks)}
             </section>
             """
@@ -317,6 +430,7 @@ def build_sample(sample_id: str, config: dict) -> dict:
     segmentation_done = time.perf_counter()
     versions = {
         "clean": render_clean(chunks),
+        "digest": render_digest(chunks),
         "study": render_study(chunks),
         "outline": render_outline(chunks),
     }

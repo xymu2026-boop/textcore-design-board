@@ -534,13 +534,22 @@ function getCourseIdFromHash() {
 function activeLesson() {
   const base = lessonSamples[currentCourseId] || lessonSamples["sample-classical"];
   const full = window.fullLessonSamples?.[currentCourseId];
-  if (!full) return base;
+  if (!full) return {
+    ...base,
+    versions: {
+      ...base.versions,
+      digest: base.versions.digest || base.versions.study,
+    },
+  };
   return {
     ...base,
     sourceFile: full.sourceFile || base.sourceFile,
     stats: `${full.stats.paragraphs} 段 / 原文约 ${(full.stats.rawChars / 10000).toFixed(2)} 万字 / ${full.stats.chunks} 个处理块`,
-    summary: `${base.summary} 当前页面已接入全文试处理结果：保真清洗版覆盖完整转写稿；学习整理版和结构提纲版按 ${full.stats.chunks} 个语义块合并生成。`,
-    versions: full.versions,
+    summary: `${base.summary} 当前页面已接入全文试处理结果：保真清洗、精简整理、学习整理和结构提纲按 ${full.stats.chunks} 个语义块合并生成。`,
+    versions: {
+      ...full.versions,
+      digest: full.versions.digest || full.versions.study,
+    },
     reviewItems: [...full.reviewItems, ...base.reviewItems],
     fullStats: full.stats,
     timing: full.timing,
@@ -558,6 +567,7 @@ function versionStats(lesson) {
   const raw = lesson.fullStats?.rawChars || 1;
   return {
     clean: { label: "保真清洗", chars: versionTextLength(lesson, "clean"), tone: "保留课堂顺序" },
+    digest: { label: "精简整理", chars: versionTextLength(lesson, "digest"), tone: "保留展开脉络" },
     study: { label: "学习整理", chars: versionTextLength(lesson, "study"), tone: "默认阅读版" },
     outline: { label: "结构提纲", chars: versionTextLength(lesson, "outline"), tone: "快速复盘" },
     raw: { label: "原文", chars: raw, tone: "转写稿" },
@@ -624,7 +634,7 @@ function renderWorkspace() {
         <div>
           <div class="upload-icon">⇧</div>
           <h1 class="upload-title">上传课堂转写 Word<br />生成学习资料</h1>
-          <p class="muted">支持 .docx；生成保真清洗、学习整理和结构提纲。</p>
+          <p class="muted">支持 .docx；生成保真清洗、精简整理、学习整理和结构提纲。</p>
           <button class="button-primary" data-upload>选择 Word 文件</button>
         </div>
       </div>
@@ -773,7 +783,7 @@ function renderLongTools(lesson) {
   return `
     <section class="sticky-control-bar">
       <div class="version-segment" aria-label="正文版本">
-        ${["clean", "study", "outline"].map((key) => `
+        ${["clean", "digest", "study", "outline"].map((key) => `
           <button class="${version === key ? "active" : ""}" data-version="${key}">
             <strong>${stats[key].label}</strong>
             <span>${formatChars(stats[key].chars)} · ${compressionText(stats[key].chars, rawChars)}</span>
@@ -844,6 +854,7 @@ function renderCompare() {
 function versionLabel(value) {
   return {
     clean: "保真清洗",
+    digest: "精简整理",
     study: "学习整理",
     outline: "结构提纲",
   }[value] || "学习整理";
