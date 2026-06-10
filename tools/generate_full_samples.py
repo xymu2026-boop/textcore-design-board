@@ -234,9 +234,21 @@ def review_flags(sample_id: str, chunks: list[Chunk]) -> list[str]:
     return flags
 
 
+def chunk_footer(index: int, chunks: list[Chunk]) -> str:
+    prev_chunk = chunks[index - 1].chunk_id if index > 0 else ""
+    next_chunk = chunks[index + 1].chunk_id if index < len(chunks) - 1 else ""
+    return f"""
+      <nav class="chunk-footer" aria-label="片段跳转">
+        <button class="tiny-button" data-jump-chunk="{prev_chunk}" {"disabled" if not prev_chunk else ""}>上一段</button>
+        <button class="tiny-button" data-jump-toc>回到目录</button>
+        <button class="tiny-button" data-jump-chunk="{next_chunk}" {"disabled" if not next_chunk else ""}>下一段</button>
+      </nav>
+    """
+
+
 def render_clean(chunks: list[Chunk]) -> str:
     sections = []
-    for chunk in chunks:
+    for index, chunk in enumerate(chunks):
         paras = "\n".join(f"<p>{html.escape(p)}</p>" for p in chunk.paragraphs)
         sections.append(
             f"""
@@ -244,6 +256,7 @@ def render_clean(chunks: list[Chunk]) -> str:
               <h2>{html.escape(chunk.title)}</h2>
               <p class="chunk-meta">片段 {chunk.chunk_id}｜原段落 {chunk.start_para}-{chunk.end_para}｜约 {chunk.raw_chars} 字</p>
               {paras}
+              {chunk_footer(index, chunks)}
             </section>
             """
         )
@@ -252,7 +265,7 @@ def render_clean(chunks: list[Chunk]) -> str:
 
 def render_study(chunks: list[Chunk]) -> str:
     sections = []
-    for chunk in chunks:
+    for index, chunk in enumerate(chunks):
         points = important_sentences(chunk.paragraphs, 7)
         li = "\n".join(f"<li>{html.escape(p)}</li>" for p in points)
         sections.append(
@@ -261,6 +274,7 @@ def render_study(chunks: list[Chunk]) -> str:
               <h2>{html.escape(chunk.title)}</h2>
               <p class="chunk-meta">学习整理｜覆盖原段落 {chunk.start_para}-{chunk.end_para}｜保留重点 {len(points)} 条</p>
               <ul>{li}</ul>
+              {chunk_footer(index, chunks)}
             </section>
             """
         )

@@ -457,6 +457,13 @@ a {
   min-width: 0;
 }
 
+.detail-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
 .course-meta {
   display: flex;
   flex-wrap: wrap;
@@ -494,10 +501,7 @@ a {
 }
 
 .detail-layout {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
-  gap: 24px;
-  align-items: start;
+  display: block;
 }
 
 .reading-panel {
@@ -519,9 +523,13 @@ a {
 }
 
 .long-tools {
+  position: sticky;
+  top: 72px;
+  z-index: 14;
   padding: 16px 24px 18px;
   border-bottom: 1px solid var(--color-border);
-  background: rgba(246, 240, 228, 0.58);
+  background: rgba(250, 246, 238, 0.96);
+  backdrop-filter: blur(16px);
 }
 
 .metric-grid {
@@ -633,48 +641,13 @@ a {
   border-radius: 3px 3px 0 0;
 }
 
-.compare-toggle {
-  margin-left: auto;
-  padding: 0 20px;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  white-space: nowrap;
-  color: var(--color-text-muted);
-}
-
-.switch {
-  width: 42px;
-  height: 23px;
-  border-radius: 999px;
-  background: #d6d0c6;
-  padding: 3px;
-}
-
-.switch::before {
-  content: "";
-  display: block;
-  width: 17px;
-  height: 17px;
-  border-radius: 999px;
-  background: #fff;
-  transition: transform 0.2s ease;
-}
-
-.compare-on .switch {
-  background: var(--color-primary);
-}
-
-.compare-on .switch::before {
-  transform: translateX(19px);
-}
-
 .reading-body {
-  padding: 42px 56px 52px;
+  padding: 48px min(8vw, 92px) 58px;
 }
 
 .reading-content {
-  max-width: 760px;
+  max-width: 940px;
+  margin: 0 auto;
   font-size: 18px;
   line-height: 1.9;
 }
@@ -687,10 +660,24 @@ a {
 }
 
 .long-section {
-  scroll-margin-top: 92px;
+  scroll-margin-top: 260px;
   padding-bottom: 26px;
   margin-bottom: 26px;
   border-bottom: 1px solid rgba(228, 217, 201, 0.72);
+}
+
+.chunk-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 26px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--color-border);
+}
+
+.chunk-footer button:disabled {
+  opacity: 0.42;
+  cursor: default;
 }
 
 .long-section:last-child {
@@ -976,6 +963,10 @@ a {
   transform: translateX(105%);
   transition: transform 0.22s ease;
   overflow: auto;
+}
+
+.drawer.wide {
+  width: min(560px, 94vw);
 }
 
 .drawer.open {

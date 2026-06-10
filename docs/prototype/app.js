@@ -553,6 +553,13 @@ function allMaterials() {
   return [...lessonSamples["sample-classical"].materials, ...lessonSamples["sample-essay"].materials, ...materials.slice(0, 1)];
 }
 
+function siblingCourseId(direction) {
+  const sampleIds = ["sample-classical", "sample-essay"];
+  const index = Math.max(0, sampleIds.indexOf(currentCourseId));
+  if (direction === "next") return sampleIds[(index + 1) % sampleIds.length];
+  return sampleIds[(index - 1 + sampleIds.length) % sampleIds.length];
+}
+
 function updateNav() {
   document.querySelectorAll("[data-nav]").forEach((link) => {
     link.classList.toggle("active", link.dataset.nav === (route === "detail" ? "courses" : route));
@@ -653,6 +660,11 @@ function renderDetail() {
   const lesson = activeLesson();
   app.innerHTML = `
     <section>
+      <div class="detail-breadcrumb">
+        <button class="button-ghost" data-route="courses">← 返回课稿列表</button>
+        <button class="tiny-button" data-open-course="${siblingCourseId("prev")}">上一篇样例</button>
+        <button class="tiny-button" data-open-course="${siblingCourseId("next")}">下一篇样例</button>
+      </div>
       <div class="detail-header">
         <div>
           <p class="page-kicker">课程详情</p>
@@ -666,10 +678,6 @@ function renderDetail() {
         </div>
         <button class="button-primary" data-export>⇩ 导出 Word</button>
       </div>
-      <div class="sample-switcher">
-        <button class="${currentCourseId === "sample-classical" ? "active" : ""}" data-open-course="sample-classical">样例一：阅读 + 文言文</button>
-        <button class="${currentCourseId === "sample-essay" ? "active" : ""}" data-open-course="sample-essay">样例二：阅读 + 作文点评</button>
-      </div>
 
       <div class="detail-layout">
         <article class="reading-panel ${compareMode ? "compare-on" : ""}">
@@ -682,22 +690,10 @@ function renderDetail() {
             <button class="${version === "clean" ? "active" : ""}" data-version="clean">保真清洗版</button>
             <button class="${version === "study" ? "active" : ""}" data-version="study">学习整理版</button>
             <button class="${version === "outline" ? "active" : ""}" data-version="outline">结构提纲版</button>
-            <button class="compare-toggle" data-toggle-compare>
-              <span>原文对照</span><span class="switch"></span>
-            </button>
+            <button class="${compareMode ? "active" : ""}" data-toggle-compare>原文对照</button>
           </div>
           ${compareMode ? renderCompare() : `<div class="reading-body ${compactMode ? "compact-long" : ""}"><div class="reading-content">${lesson.versions[version]}</div></div>`}
         </article>
-        <aside class="side-panel">
-          <section class="side-card">
-            <div class="side-tabs">
-              <button class="${sideTab === "cards" ? "active" : ""}" data-side-tab="cards">卡片</button>
-              <button class="${sideTab === "materials" ? "active" : ""}" data-side-tab="materials">素材</button>
-              <button class="${sideTab === "review" ? "active" : ""}" data-side-tab="review">复核</button>
-            </div>
-            ${renderSideContent()}
-          </section>
-        </aside>
       </div>
     </section>
   `;
@@ -718,9 +714,12 @@ function renderLongTools(lesson) {
       <div class="long-actions">
         <button class="tiny-button" data-toggle-compact>${compactMode ? "展开全文" : "紧凑浏览"}</button>
         <button class="tiny-button" data-jump-chunk="c01">回到第一段</button>
+        <button class="tiny-button" data-open-resource-panel="cards">知识卡片</button>
+        <button class="tiny-button" data-open-resource-panel="materials">作文素材</button>
+        <button class="tiny-button" data-open-resource-panel="review">复核标记</button>
         <span>${timing.llmEstimate}</span>
       </div>
-      <div class="chunk-toc" aria-label="全文分块目录">
+      <div class="chunk-toc" id="chunkToc" aria-label="全文分块目录">
         ${lesson.chunks.map((chunk) => `
           <button data-jump-chunk="${chunk.id}">
             <strong>${chunk.id.toUpperCase()}</strong>
@@ -737,7 +736,8 @@ function renderCompare() {
   return `
     <div class="compare-view">
       <section class="compare-col">
-        <h3>原始转写稿</h3>
+        <h3>原始转写稿片段</h3>
+        <p class="muted">原文对照建议按当前 C 段同步展示。原型先用摘要片段模拟，正式版会按段落 ID 显示同一处理块的原文。</p>
         ${lesson.rawExcerpt}
       </section>
       <section class="compare-col">
@@ -830,9 +830,23 @@ function openDrawer(kind, index) {
   drawer.setAttribute("aria-hidden", "false");
 }
 
+function openResourcePanel(tab = "cards") {
+  sideTab = tab;
+  const drawer = document.querySelector("#infoDrawer");
+  const content = document.querySelector("#drawerContent");
+  content.innerHTML = `
+    <p class="page-kicker">关联资源</p>
+    <h2>${tab === "materials" ? "作文素材" : tab === "review" ? "复核标记" : "知识卡片"}</h2>
+    <p class="muted">资源面板不再常驻右侧，避免挤压正文。正式版可按当前 C 段过滤，只显示与正在阅读片段有关的卡片、素材和复核项。</p>
+    ${renderSideContent()}
+  `;
+  drawer.classList.add("open", "wide");
+  drawer.setAttribute("aria-hidden", "false");
+}
+
 function closeDrawer() {
   const drawer = document.querySelector("#infoDrawer");
-  drawer.classList.remove("open");
+  drawer.classList.remove("open", "wide");
   drawer.setAttribute("aria-hidden", "true");
 }
 
@@ -868,7 +882,7 @@ function simulateUpload() {
 }
 
 document.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-route], [data-open-course], [data-version], [data-side-tab], [data-asset-tab], [data-toggle-compare], [data-toggle-compact], [data-jump-chunk], [data-export], [data-close-modal], [data-open-drawer], [data-close-drawer], [data-upload], [data-go-detail], [data-toast]");
+  const target = event.target.closest("[data-route], [data-open-course], [data-version], [data-side-tab], [data-asset-tab], [data-toggle-compare], [data-toggle-compact], [data-jump-chunk], [data-jump-toc], [data-open-resource-panel], [data-export], [data-close-modal], [data-open-drawer], [data-close-drawer], [data-upload], [data-go-detail], [data-toast]");
   if (!target) return;
 
   if (target.dataset.route) window.location.hash = `#/${target.dataset.route}`;
@@ -897,9 +911,14 @@ document.addEventListener("click", (event) => {
     const node = document.querySelector(`#${target.dataset.jumpChunk}`);
     if (node) node.scrollIntoView({ behavior: "smooth", block: "start" });
   }
+  if (target.dataset.jumpToc !== undefined) {
+    const node = document.querySelector("#chunkToc");
+    if (node) node.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
   if (target.dataset.export !== undefined) openExport();
   if (target.dataset.closeModal !== undefined) closeExport();
   if (target.dataset.openDrawer) openDrawer(target.dataset.openDrawer, Number(target.dataset.index || 0));
+  if (target.dataset.openResourcePanel) openResourcePanel(target.dataset.openResourcePanel);
   if (target.dataset.closeDrawer !== undefined) closeDrawer();
   if (target.dataset.upload !== undefined || target.dataset.goDetail !== undefined) simulateUpload();
   if (target.dataset.toast) showToast(target.dataset.toast);
