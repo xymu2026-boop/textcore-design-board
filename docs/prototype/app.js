@@ -736,12 +736,17 @@ function renderDetail() {
 function renderProcessingOverview(lesson) {
   const stat = lesson.fullStats;
   const timing = lesson.timing;
+  const counts = resourceCountsForChunk(lesson, currentChunkId);
   return `
     <section class="source-summary">
       <div class="overview-card">
         <div class="overview-card-head">
           <p class="page-kicker">课程知识卡</p>
-          <button class="tiny-button" data-open-resource-panel="cards">查看知识点</button>
+          <div class="overview-actions" aria-label="课程关联资源">
+            <button class="tiny-button resource-button" data-open-resource-panel="cards">知识点 · <span data-resource-count="cards">${counts.cards}</span></button>
+            <button class="tiny-button resource-button" data-open-resource-panel="materials">写作素材 · <span data-resource-count="materials">${counts.materials}</span></button>
+            <button class="tiny-button resource-button" data-open-resource-panel="review">待复核 · <span data-resource-count="review">${counts.review}</span></button>
+          </div>
         </div>
         <h2>${lesson.title}：${lesson.subtitle}</h2>
         <p>${overviewSummary(lesson)}</p>
@@ -763,7 +768,6 @@ function renderProcessingOverview(lesson) {
 
 function renderLongTools(lesson) {
   if (!lesson.fullStats) return "";
-  const counts = resourceCountsForChunk(lesson, currentChunkId);
   const stats = versionStats(lesson);
   const rawChars = stats.raw.chars;
   return `
@@ -776,6 +780,9 @@ function renderLongTools(lesson) {
           </button>
         `).join("")}
       </div>
+      <button class="button-secondary compare-action ${compareMode ? "active" : ""}" data-toggle-compare>
+        对照原文 <span>原文 ${formatChars(stats.raw.chars)}</span>
+      </button>
       <div class="control-actions">
         <details class="chapter-menu">
           <summary>章节目录 <span class="current-chunk-label">${currentChunkId.toUpperCase()}</span></summary>
@@ -790,12 +797,6 @@ function renderLongTools(lesson) {
           </div>
         </details>
         <button class="tiny-button" data-toggle-compact>${compactMode ? "查看完整正文" : "只看段落标题"}</button>
-        <button class="button-secondary compare-action ${compareMode ? "active" : ""}" data-toggle-compare>
-          对照原文 <span>原文 ${formatChars(stats.raw.chars)}</span>
-        </button>
-        <button class="tiny-button resource-button" data-open-resource-panel="cards">知识点 · <span data-resource-count="cards">${counts.cards}</span></button>
-        <button class="tiny-button resource-button" data-open-resource-panel="materials">写作素材 · <span data-resource-count="materials">${counts.materials}</span></button>
-        <button class="tiny-button resource-button" data-open-resource-panel="review">待复核 · <span data-resource-count="review">${counts.review}</span></button>
       </div>
     </section>
     <aside class="floating-toc-sidebar" id="chunkToc" aria-label="正文分段导航">
