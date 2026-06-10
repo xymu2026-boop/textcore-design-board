@@ -505,6 +505,7 @@ let compactMode = false;
 let currentChunkId = "c01";
 let showAllResources = false;
 let chunkObserver = null;
+let classicsPopover = null;
 
 const app = document.querySelector("#app");
 const topbar = document.querySelector(".topbar");
@@ -534,14 +535,14 @@ function getCourseIdFromHash() {
 function activeLesson() {
   const base = lessonSamples[currentCourseId] || lessonSamples["sample-classical"];
   const full = window.fullLessonSamples?.[currentCourseId];
-  if (!full) return {
+  if (!full) return withClassicsDemo({
     ...base,
     versions: {
       ...base.versions,
       digest: base.versions.digest || base.versions.study,
     },
-  };
-  return {
+  });
+  return withClassicsDemo({
     ...base,
     sourceFile: full.sourceFile || base.sourceFile,
     stats: `${full.stats.paragraphs} 段 / 原文约 ${(full.stats.rawChars / 10000).toFixed(2)} 万字 / ${full.stats.chunks} 个处理块`,
@@ -554,7 +555,31 @@ function activeLesson() {
     fullStats: full.stats,
     timing: full.timing,
     chunks: full.chunks,
+  });
+}
+
+function withClassicsDemo(lesson) {
+  if (currentCourseId !== "sample-classical") return lesson;
+  const enhancedVersions = { ...(lesson.versions || {}) };
+  ["clean", "digest", "study"].forEach((key) => {
+    if (enhancedVersions[key]) {
+      enhancedVersions[key] = injectClassicalReferenceBlock(enhancedVersions[key], key);
+    }
+  });
+  return {
+    ...lesson,
+    versions: enhancedVersions,
   };
+}
+
+function injectClassicalReferenceBlock(html, versionKey) {
+  if (!html || html.includes("classical-appreciation-block")) return html;
+  const block = renderClassicalAppreciationBlock(versionKey);
+  const c08Match = /(<section class="long-section" id="c08">[\s\S]*?<p class="chunk-meta">[\s\S]*?<\/p>)/;
+  if (c08Match.test(html)) return html.replace(c08Match, `$1${block}`);
+  const c07Match = /(<section class="long-section" id="c07">[\s\S]*?<p class="chunk-meta">[\s\S]*?<\/p>)/;
+  if (c07Match.test(html)) return html.replace(c07Match, `$1${block}`);
+  return `${block}${html}`;
 }
 
 function versionTextLength(lesson, key) {
@@ -596,6 +621,105 @@ function overviewSummary(lesson) {
   return "本课围绕现代文阅读六大题型展开，重点训练题型判断、回归文本和知识性术语；后半结合学生写景作文，整理语言凝练、小短句和表达更新的方法。适合复习阅读答题与作文修改。";
 }
 
+const classicsRefs = {
+  yuanhongdao: {
+    type: "作者",
+    title: "袁宏道",
+    subtitle: "明代文学家，公安派代表人物",
+    summary: "袁宏道主张文章要独抒性灵、不拘格套，反对一味模拟古人。老师在课中用他解释《醉叟传》的写作气质：写奇人，也写真性情。",
+    source: "古诗文网 / 本地古文参考库",
+    quote: "独抒性灵，不拘格套",
+    fields: [
+      ["时代", "明代"],
+      ["流派", "公安派 / 性灵派源头之一"],
+      ["课堂关联", "解释《醉叟传》为什么会关注底层小人物与奇异人物"],
+    ],
+  },
+  zuisouzhuan: {
+    type: "作品",
+    title: "《醉叟传》",
+    subtitle: "袁宏道人物传记，课堂样例为第一段讲解",
+    summary: "作品通过不知来历、常醉、孤身、怪食等细节，让醉叟以神秘而传奇的方式登场。文心会把参考库原文、译文和老师讲解分层展示。",
+    source: "古诗文网 / 本地古文参考库",
+    quote: "醉叟者，不知何地人，亦不言其姓字，以其常醉，呼曰“醉叟”。",
+    translation: "醉叟这个人，不知道是哪里人，也没人说出他的姓名字号，因为他经常喝醉，所以大家称他为“醉叟”。",
+    appreciation: "这一段不急着交代人物来历，而是先用称谓、外貌、行动和旁人反应制造悬念，形成“奇人入场”的人物传记写法。",
+    terms: [
+      ["叟", "年老男子。"],
+      ["以", "因为。"],
+      ["姓字", "姓名字号。"],
+      ["呼曰", "称呼为。"],
+      ["可", "大约，如“年可五十余”。"],
+    ],
+  },
+};
+
+const keywordRefMap = {
+  袁宏道: "yuanhongdao",
+  醉叟传: "zuisouzhuan",
+  文言字词: "zuisouzhuan",
+};
+
+function renderKeywordChip(keyword) {
+  const refKey = keywordRefMap[keyword];
+  if (refKey) {
+    return `<button class="keyword-chip classics-keyword" data-classics-popover="${refKey}">${keyword}</button>`;
+  }
+  return `<button class="keyword-chip" data-open-resource-panel="cards">${keyword}</button>`;
+}
+
+function renderClassicsAnchor(key, label) {
+  return `<button class="classics-anchor" data-classics-popover="${key}" type="button">${label}</button>`;
+}
+
+function renderClassicsSource(key) {
+  const ref = classicsRefs[key];
+  return `<button class="source-stamp" data-open-classics="${key}" type="button"><i></i>来自：${ref.source} ↗</button>`;
+}
+
+function renderClassicalAppreciationBlock(versionKey = "study") {
+  const modeText = {
+    clean: "保真清洗保留课堂讲法，并用参考库把疑似错字低干扰标出。",
+    digest: "精简整理保留文言文讲解脉络，译文和字词可按需展开。",
+    study: "学习整理把原文、译文、字词和老师讲解分层，方便复习。",
+  }[versionKey] || "学习整理把古文参考资料放在正文旁边，方便复习。";
+  return `
+    <aside class="classical-appreciation-block" aria-label="古文旁征博引">
+      <div class="classical-block-head">
+        <span class="classical-label">古文旁征博引</span>
+        ${renderClassicsSource("zuisouzhuan")}
+      </div>
+      <h3>${renderClassicsAnchor("zuisouzhuan", "《醉叟传》")} 节选 · ${renderClassicsAnchor("yuanhongdao", "袁宏道")}</h3>
+      <p class="classical-original">
+        醉叟者，不知何地人，亦不言其姓字，以其常醉，呼曰“
+        <span class="correction-mark" tabindex="0">醉叟<sup>原:最手/罪首</sup>
+          <span class="correction-tooltip">
+            原始转写多处出现“最手 / 罪首 / 醉手”；参考标题、句义和课堂讲解，规范候选为“醉叟”。正式版仍标记供人工复核。
+          </span>
+        </span>”。
+      </p>
+      <details class="classical-fold">
+        <summary>展开译文与字词释义</summary>
+        <div class="classical-explain-grid">
+          <div>
+            <h4>白话译文</h4>
+            <p>${classicsRefs.zuisouzhuan.translation}</p>
+          </div>
+          <div>
+            <h4>重点字词</h4>
+            <ul>${classicsRefs.zuisouzhuan.terms.slice(0, 4).map(([term, note]) => `<li><strong>${term}</strong>：${note}</li>`).join("")}</ul>
+          </div>
+        </div>
+      </details>
+      <p class="teacher-note"><strong>老师讲解回到课堂主线：</strong>${modeText} 这类段落的重点不是把古文讲成百科，而是看人物怎样登场：不知来历、不言姓名、因常醉得名，先把神秘感立住。</p>
+      <div class="classical-actions">
+        <button class="tiny-button" data-classics-popover="yuanhongdao">作者标签</button>
+        <button class="tiny-button" data-open-classics="zuisouzhuan">查看详案</button>
+      </div>
+    </aside>
+  `;
+}
+
 function allCards() {
   return [...lessonSamples["sample-classical"].cards, ...lessonSamples["sample-essay"].cards, ...cards.slice(0, 2)];
 }
@@ -619,6 +743,7 @@ function updateNav() {
 }
 
 function render() {
+  closeClassicsPopover();
   app.className = `page-container${route === "detail" ? " detail-page-container" : ""}`;
   if (route === "courses") renderCourses();
   else if (route === "detail") renderDetail();
@@ -756,12 +881,13 @@ function renderProcessingOverview(lesson) {
             <button class="tiny-button resource-button" data-open-resource-panel="cards">知识点 · <span data-resource-count="cards">${counts.cards}</span></button>
             <button class="tiny-button resource-button" data-open-resource-panel="materials">写作素材 · <span data-resource-count="materials">${counts.materials}</span></button>
             <button class="tiny-button resource-button" data-open-resource-panel="review">待复核 · <span data-resource-count="review">${counts.review}</span></button>
+            ${currentCourseId === "sample-classical" ? `<button class="tiny-button resource-button classics-resource-button" data-open-classics="zuisouzhuan">旁征博引 · 1</button>` : ""}
           </div>
         </div>
         <h2>${lesson.title}：${lesson.subtitle}</h2>
         <p>${overviewSummary(lesson)}</p>
         <div class="keyword-row">
-          ${overviewKeywords(lesson).map((keyword) => `<button class="keyword-chip" data-open-resource-panel="cards">${keyword}</button>`).join("")}
+          ${overviewKeywords(lesson).map((keyword) => renderKeywordChip(keyword)).join("")}
         </div>
       </div>
       ${stat ? `
@@ -891,7 +1017,27 @@ function lessonResources(lesson, kind) {
       chunkId: resourceChunkId(lesson, index, "review"),
     }));
   }
-  return lesson.cards.map((item, index) => ({ ...item, kind: "card", chunkId: resourceChunkId(lesson, index, "cards") }));
+  const baseCards = lesson.cards.map((item, index) => ({ ...item, kind: "card", chunkId: resourceChunkId(lesson, index, "cards") }));
+  if (currentCourseId !== "sample-classical") return baseCards;
+  return [
+    ...baseCards,
+    {
+      title: "《醉叟传》作品卡",
+      type: "古文作品",
+      summary: "人物传记开头：不知来历、不言姓名、因常醉得名，用奇异细节制造人物悬念。",
+      kind: "card",
+      chunkId: "c08",
+      refKey: "zuisouzhuan",
+    },
+    {
+      title: "袁宏道作者卡",
+      type: "作者",
+      summary: "晚明公安派代表，课堂用于解释《醉叟传》的性灵气质与小人物传记传统。",
+      kind: "card",
+      chunkId: "c07",
+      refKey: "yuanhongdao",
+    },
+  ];
 }
 
 function scopedResources(lesson, kind) {
@@ -932,7 +1078,7 @@ function resourceItem(item, index) {
         <p>${item.summary}</p>
         <span class="tag">${item.chunkId.toUpperCase()}</span>
       </div>
-      <button class="tiny-button" data-jump-chunk="${item.chunkId}">定位</button>
+      ${item.refKey ? `<button class="tiny-button" data-open-classics="${item.refKey}">详案</button>` : `<button class="tiny-button" data-jump-chunk="${item.chunkId}">定位</button>`}
     </div>
   `;
 }
@@ -947,18 +1093,19 @@ function miniItem(item, index, kind) {
 }
 
 function renderAssets() {
-  const source = assetTab === "materials" ? allMaterials() : assetTab === "words" ? wordsData() : allCards();
+  const source = assetTab === "works" ? classicalWorks() : assetTab === "materials" ? allMaterials() : assetTab === "words" ? wordsData() : allCards();
   app.innerHTML = `
     <section class="asset-page">
       <p class="page-kicker">知识沉淀</p>
       <h1 class="page-title">知识资产库</h1>
       <div class="asset-tabs">
         <button class="${assetTab === "methods" ? "active" : ""}" data-asset-tab="methods">知识点库</button>
+        <button class="${assetTab === "works" ? "active" : ""}" data-asset-tab="works">作品典藏</button>
         <button class="${assetTab === "words" ? "active" : ""}" data-asset-tab="words">词汇生词本</button>
         <button class="${assetTab === "materials" ? "active" : ""}" data-asset-tab="materials">写作素材库</button>
       </div>
       <div class="asset-grid">
-        ${source.map((item, index) => `
+        ${source.map((item, index) => assetTab === "works" ? renderWorkAssetCard(item) : `
           <article class="asset-card" data-open-drawer="${assetTab === "materials" ? "material" : "card"}" data-index="${index}">
             <h3>${assetTab === "words" ? "词：" : assetTab === "materials" ? "素材：" : "知识点："}${item.title}</h3>
             <span class="tag">${item.type}</span>
@@ -969,6 +1116,42 @@ function renderAssets() {
         `).join("")}
       </div>
     </section>
+  `;
+}
+
+function classicalWorks() {
+  return [
+    {
+      title: "《醉叟传》",
+      type: "文言传记",
+      author: "袁宏道",
+      quote: classicsRefs.zuisouzhuan.quote,
+      summary: classicsRefs.zuisouzhuan.summary,
+      course: "五上寒假第三/四讲 · 文言文《醉叟传》",
+      words: ["叟", "以", "姓字", "呼曰", "可"],
+      appreciation: "奇人登场、人物传记、悬念式开头",
+      refKey: "zuisouzhuan",
+    },
+  ];
+}
+
+function renderWorkAssetCard(item) {
+  return `
+    <article class="asset-card work-asset-card" data-open-classics="${item.refKey}">
+      <div class="work-card-head">
+        <span class="tag">${item.type}</span>
+        <span>${item.author}</span>
+      </div>
+      <h3>作品：${item.title}</h3>
+      <blockquote class="work-quote">${item.quote}</blockquote>
+      <p><strong>核心赏析：</strong>${item.summary}</p>
+      <div class="work-meta-list">
+        <span>关联课堂：${item.course}</span>
+        <span>已记字词：${item.words.join("、")}</span>
+        <span>主题：${item.appreciation}</span>
+      </div>
+      <button class="tiny-button">查看作品详案</button>
+    </article>
   `;
 }
 
@@ -1004,6 +1187,7 @@ function openDrawer(kind, index) {
       <button class="button-secondary" data-open-course="${currentCourseId}">查看来源课程</button>
     </div>
   `;
+  drawer.classList.remove("classics-drawer");
   drawer.classList.add("open");
   drawer.setAttribute("aria-hidden", "false");
 }
@@ -1020,13 +1204,97 @@ function openResourcePanel(tab = "cards") {
     <button class="button-secondary resource-scope-toggle" data-toggle-resource-scope>${showAllResources ? "只看当前分段" : "查看全文资源"}</button>
     ${renderSideContent()}
   `;
+  drawer.classList.remove("classics-drawer");
   drawer.classList.add("open", "wide");
+  drawer.setAttribute("aria-hidden", "false");
+}
+
+function getClassicsPopover() {
+  if (!classicsPopover) {
+    classicsPopover = document.createElement("div");
+    classicsPopover.className = "classics-popover";
+    document.body.appendChild(classicsPopover);
+  }
+  return classicsPopover;
+}
+
+function openClassicsPopover(anchor, key) {
+  const ref = classicsRefs[key];
+  if (!ref) return;
+  const popover = getClassicsPopover();
+  popover.innerHTML = `
+    <p class="popover-kicker">${ref.type}旁征博引</p>
+    <h3>${ref.title}</h3>
+    <p>${ref.summary}</p>
+    <footer class="popover-actions">
+      <span class="source-stamp static"><i></i>${ref.source}</span>
+      <button class="tiny-button" data-open-classics="${key}">展开详案</button>
+    </footer>
+  `;
+  const rect = anchor.getBoundingClientRect();
+  const width = Math.min(340, window.innerWidth - 28);
+  popover.style.width = `${width}px`;
+  popover.style.left = `${Math.min(Math.max(14, rect.left), window.innerWidth - width - 14)}px`;
+  popover.style.top = `${Math.min(rect.bottom + 10, window.innerHeight - 220)}px`;
+  popover.classList.add("show");
+}
+
+function closeClassicsPopover() {
+  if (!classicsPopover) return;
+  classicsPopover.classList.remove("show");
+}
+
+function openClassicsDrawer(key) {
+  const ref = classicsRefs[key];
+  if (!ref) return;
+  const drawer = document.querySelector("#infoDrawer");
+  const content = document.querySelector("#drawerContent");
+  const isWork = key === "zuisouzhuan";
+  content.innerHTML = `
+    <p class="page-kicker">旁征博引 · ${ref.type}</p>
+    <h2>${ref.title}</h2>
+    <p class="muted">${ref.subtitle}</p>
+    <div class="drawer-source-line">
+      <span class="source-stamp static"><i></i>${ref.source}</span>
+      <span>当前为样例参考资料，正式版会保留来源与复核状态。</span>
+    </div>
+    <blockquote class="drawer-quote">${ref.quote}</blockquote>
+    <div class="drawer-section">
+      <h3>${isWork ? "白话译文" : "核心说明"}</h3>
+      <p>${isWork ? ref.translation : ref.summary}</p>
+    </div>
+    ${isWork ? `
+      <div class="drawer-section">
+        <h3>重点字词</h3>
+        <div class="term-grid">
+          ${ref.terms.map(([term, note]) => `<span><strong>${term}</strong>${note}</span>`).join("")}
+        </div>
+      </div>
+      <div class="drawer-section">
+        <h3>核心赏析</h3>
+        <p>${ref.appreciation}</p>
+      </div>
+    ` : `
+      <div class="drawer-section">
+        <h3>资料字段</h3>
+        <div class="term-grid">
+          ${ref.fields.map(([label, value]) => `<span><strong>${label}</strong>${value}</span>`).join("")}
+        </div>
+      </div>
+    `}
+    <div class="drawer-section">
+      <h3>来源课程</h3>
+      <p>五上寒假第三/四讲：《偷钱》线索讲评 + 文言文《醉叟传》。</p>
+      <button class="button-secondary" data-open-course="sample-classical">回到课程详情</button>
+    </div>
+  `;
+  drawer.classList.add("open", "wide", "classics-drawer");
   drawer.setAttribute("aria-hidden", "false");
 }
 
 function closeDrawer() {
   const drawer = document.querySelector("#infoDrawer");
-  drawer.classList.remove("open", "wide");
+  drawer.classList.remove("open", "wide", "classics-drawer");
   drawer.setAttribute("aria-hidden", "true");
 }
 
@@ -1121,8 +1389,11 @@ function simulateUpload() {
 }
 
 document.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-route], [data-open-course], [data-version], [data-side-tab], [data-asset-tab], [data-toggle-compare], [data-toggle-compact], [data-toggle-resource-scope], [data-jump-chunk], [data-jump-toc], [data-scroll-top], [data-scroll-bottom], [data-open-resource-panel], [data-export], [data-close-modal], [data-open-drawer], [data-close-drawer], [data-upload], [data-go-detail], [data-toast]");
-  if (!target) return;
+  const target = event.target.closest("[data-route], [data-open-course], [data-version], [data-side-tab], [data-asset-tab], [data-toggle-compare], [data-toggle-compact], [data-toggle-resource-scope], [data-jump-chunk], [data-jump-toc], [data-scroll-top], [data-scroll-bottom], [data-open-resource-panel], [data-classics-popover], [data-open-classics], [data-export], [data-close-modal], [data-open-drawer], [data-close-drawer], [data-upload], [data-go-detail], [data-toast]");
+  if (!target) {
+    if (!event.target.closest(".classics-popover")) closeClassicsPopover();
+    return;
+  }
 
   if (target.dataset.route) window.location.hash = `#/${target.dataset.route}`;
   if (target.dataset.openCourse) window.location.hash = `#/courses/${target.dataset.openCourse}`;
@@ -1170,6 +1441,11 @@ document.addEventListener("click", (event) => {
   if (target.dataset.closeModal !== undefined) closeExport();
   if (target.dataset.openDrawer) openDrawer(target.dataset.openDrawer, Number(target.dataset.index || 0));
   if (target.dataset.openResourcePanel) openResourcePanel(target.dataset.openResourcePanel);
+  if (target.dataset.classicsPopover) openClassicsPopover(target, target.dataset.classicsPopover);
+  if (target.dataset.openClassics) {
+    closeClassicsPopover();
+    openClassicsDrawer(target.dataset.openClassics);
+  }
   if (target.dataset.closeDrawer !== undefined) closeDrawer();
   if (target.dataset.upload !== undefined || target.dataset.goDetail !== undefined) simulateUpload();
   if (target.dataset.toast) showToast(target.dataset.toast);
