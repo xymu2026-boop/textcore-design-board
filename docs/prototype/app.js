@@ -548,6 +548,44 @@ function activeLesson() {
   };
 }
 
+function versionTextLength(lesson, key) {
+  const wrapper = document.createElement("div");
+  wrapper.innerHTML = lesson.versions?.[key] || "";
+  return wrapper.textContent.replace(/\s+/g, "").length;
+}
+
+function versionStats(lesson) {
+  const raw = lesson.fullStats?.rawChars || 1;
+  return {
+    clean: { label: "保真清洗", chars: versionTextLength(lesson, "clean"), tone: "保留课堂顺序" },
+    study: { label: "学习整理", chars: versionTextLength(lesson, "study"), tone: "默认阅读版" },
+    outline: { label: "结构提纲", chars: versionTextLength(lesson, "outline"), tone: "快速复盘" },
+    raw: { label: "原文", chars: raw, tone: "转写稿" },
+  };
+}
+
+function formatChars(value) {
+  if (value >= 10000) return `${(value / 10000).toFixed(2)} 万字`;
+  return `${Math.max(1, Math.round(value / 100) * 100)} 字`;
+}
+
+function compressionText(chars, raw) {
+  if (!raw) return "";
+  return `约 ${Math.round((chars / raw) * 100)}%`;
+}
+
+function overviewKeywords(lesson) {
+  if (currentCourseId === "sample-classical") return ["明线暗线", "犯错教育", "爱与宽容", "袁宏道", "醉叟传", "文言字词"];
+  return ["阅读三步法", "概括题", "引用作用", "比喻赏析", "放学路", "写景语言"];
+}
+
+function overviewSummary(lesson) {
+  if (currentCourseId === "sample-classical") {
+    return "本课前半围绕吴祖光《偷钱》分析明线、暗线和儿童犯错后的家庭教育方式；后半进入袁宏道《醉叟传》，整理作者背景、人物传记写法和第一段字词翻译。适合复习线索结构、教育主题和文言文人物描写。";
+  }
+  return "本课围绕现代文阅读六大题型展开，重点训练题型判断、回归文本和知识性术语；后半结合学生写景作文，整理语言凝练、小短句和表达更新的方法。适合复习阅读答题与作文修改。";
+}
+
 function allCards() {
   return [...lessonSamples["sample-classical"].cards, ...lessonSamples["sample-essay"].cards, ...cards.slice(0, 2)];
 }
@@ -571,6 +609,7 @@ function updateNav() {
 }
 
 function render() {
+  app.className = `page-container${route === "detail" ? " detail-page-container" : ""}`;
   if (route === "courses") renderCourses();
   else if (route === "detail") renderDetail();
   else if (route === "assets") renderAssets();
@@ -665,7 +704,7 @@ function renderDetail() {
   app.innerHTML = `
     <section>
       <div class="detail-breadcrumb">
-        <button class="button-ghost" data-route="courses">← 返回课稿库</button>
+        <button class="button-ghost" data-route="courses">← 返回课稿列表</button>
         <button class="tiny-button" data-open-course="${siblingCourseId("prev")}">上一篇</button>
         <button class="tiny-button" data-open-course="${siblingCourseId("next")}">下一篇</button>
       </div>
@@ -699,16 +738,23 @@ function renderProcessingOverview(lesson) {
   const timing = lesson.timing;
   return `
     <section class="source-summary">
-      <div>
-        <p class="page-kicker">处理结果概览</p>
-        <p>${lesson.summary}</p>
+      <div class="overview-card">
+        <div class="overview-card-head">
+          <p class="page-kicker">课程知识卡</p>
+          <button class="tiny-button" data-open-resource-panel="cards">查看知识点</button>
+        </div>
+        <h2>${lesson.title}：${lesson.subtitle}</h2>
+        <p>${overviewSummary(lesson)}</p>
+        <div class="keyword-row">
+          ${overviewKeywords(lesson).map((keyword) => `<button class="keyword-chip" data-open-resource-panel="cards">${keyword}</button>`).join("")}
+        </div>
       </div>
       ${stat ? `
-        <div class="metric-grid static">
-          <div><strong>${(stat.rawChars / 10000).toFixed(2)} 万</strong><span>原文字数</span></div>
-          <div><strong>${stat.chunks}</strong><span>正文分段</span></div>
-          <div><strong>${timing.totalSeconds}s</strong><span>本地处理耗时</span></div>
-          <div><strong>6-15 分钟</strong><span>AI 精修预计</span></div>
+        <div class="process-meta">
+          <span>原文 ${(stat.rawChars / 10000).toFixed(2)} 万字</span>
+          <span>${stat.chunks} 个正文分段</span>
+          <span>本地 ${timing.totalSeconds}s</span>
+          <span>AI 精修约 6-15 分钟</span>
         </div>
       ` : ""}
     </section>
@@ -717,15 +763,18 @@ function renderProcessingOverview(lesson) {
 
 function renderLongTools(lesson) {
   if (!lesson.fullStats) return "";
-  const timing = lesson.timing;
   const counts = resourceCountsForChunk(lesson, currentChunkId);
+  const stats = versionStats(lesson);
+  const rawChars = stats.raw.chars;
   return `
     <section class="sticky-control-bar">
       <div class="version-segment" aria-label="正文版本">
-        <button class="${version === "clean" && !compareMode ? "active" : ""}" data-version="clean">保真清洗</button>
-        <button class="${version === "study" && !compareMode ? "active" : ""}" data-version="study">学习整理</button>
-        <button class="${version === "outline" && !compareMode ? "active" : ""}" data-version="outline">结构提纲</button>
-        <button class="${compareMode ? "active" : ""}" data-toggle-compare>对照原文</button>
+        ${["clean", "study", "outline"].map((key) => `
+          <button class="${version === key ? "active" : ""}" data-version="${key}">
+            <strong>${stats[key].label}</strong>
+            <span>${formatChars(stats[key].chars)} · ${compressionText(stats[key].chars, rawChars)}</span>
+          </button>
+        `).join("")}
       </div>
       <div class="control-actions">
         <details class="chapter-menu">
@@ -733,25 +782,42 @@ function renderLongTools(lesson) {
           <div class="chapter-menu-list">
             ${lesson.chunks.map((chunk) => `
               <button class="${chunk.id === currentChunkId ? "active" : ""}" data-jump-chunk="${chunk.id}">
-                <strong>${chunk.id.toUpperCase()}</strong><span>${chunk.title}</span>
+                <strong>${chunk.id.toUpperCase()}</strong>
+                <span>${chunk.title}</span>
+                <small>段落 ${chunk.startPara}-${chunk.endPara} · ${chunk.chars} 字</small>
               </button>
             `).join("")}
           </div>
         </details>
         <button class="tiny-button" data-toggle-compact>${compactMode ? "查看完整正文" : "只看段落标题"}</button>
+        <button class="button-secondary compare-action ${compareMode ? "active" : ""}" data-toggle-compare>
+          对照原文 <span>原文 ${formatChars(stats.raw.chars)}</span>
+        </button>
         <button class="tiny-button resource-button" data-open-resource-panel="cards">知识点 · <span data-resource-count="cards">${counts.cards}</span></button>
         <button class="tiny-button resource-button" data-open-resource-panel="materials">写作素材 · <span data-resource-count="materials">${counts.materials}</span></button>
         <button class="tiny-button resource-button" data-open-resource-panel="review">待复核 · <span data-resource-count="review">${counts.review}</span></button>
       </div>
-      <p class="control-hint">${timing.llmEstimate}</p>
     </section>
     <aside class="floating-toc-sidebar" id="chunkToc" aria-label="正文分段导航">
+        <button class="toc-home" data-scroll-top title="回到首屏">
+          <strong>顶</strong><span>回到首屏</span>
+        </button>
         ${lesson.chunks.map((chunk) => `
           <button class="${chunk.id === currentChunkId ? "active" : ""}" data-jump-chunk="${chunk.id}" title="${chunk.title}">
-            <strong>${chunk.id.toUpperCase()}</strong><span>${chunk.title}</span>
+            <strong>${chunk.id.toUpperCase()}</strong>
+            <span>${chunk.title}</span>
+            <small>段落 ${chunk.startPara}-${chunk.endPara} · ${chunk.chars} 字</small>
           </button>
         `).join("")}
     </aside>
+    <div class="quick-scroll-rail" aria-label="快速滚动">
+      <button class="rail-edge" data-scroll-top title="回到首屏">↑</button>
+      <input class="quick-scroll-range" data-scroll-range type="range" min="0" max="100" value="0" aria-label="拖动快速浏览正文" />
+      <div class="rail-dots">
+        ${lesson.chunks.map((chunk) => `<button class="${chunk.id === currentChunkId ? "active" : ""}" data-jump-chunk="${chunk.id}" title="${chunk.id.toUpperCase()} ${chunk.title}"></button>`).join("")}
+      </div>
+      <button class="rail-edge" data-scroll-bottom title="到底部">↓</button>
+    </div>
   `;
 }
 
@@ -984,6 +1050,31 @@ function updateChunkContext() {
   document.querySelectorAll("[data-jump-chunk]").forEach((node) => {
     node.classList.toggle("active", node.dataset.jumpChunk === currentChunkId);
   });
+  syncQuickScroll();
+}
+
+function scrollToDetailTop() {
+  const firstChunkId = activeLesson().chunks?.[0]?.id;
+  if (firstChunkId) currentChunkId = firstChunkId;
+  if (compareMode) renderDetail();
+  else updateChunkContext();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function scrollToDetailBottom() {
+  window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
+}
+
+function syncQuickScroll() {
+  const range = document.querySelector("[data-scroll-range]");
+  if (!range) return;
+  const maxScroll = Math.max(1, document.documentElement.scrollHeight - window.innerHeight);
+  range.value = Math.round((window.scrollY / maxScroll) * 100);
+}
+
+function scrollByRatio(value) {
+  const maxScroll = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+  window.scrollTo({ top: maxScroll * (Number(value) / 100), behavior: "auto" });
 }
 
 function showToast(message) {
@@ -1018,14 +1109,13 @@ function simulateUpload() {
 }
 
 document.addEventListener("click", (event) => {
-  const target = event.target.closest("[data-route], [data-open-course], [data-version], [data-side-tab], [data-asset-tab], [data-toggle-compare], [data-toggle-compact], [data-toggle-resource-scope], [data-jump-chunk], [data-jump-toc], [data-open-resource-panel], [data-export], [data-close-modal], [data-open-drawer], [data-close-drawer], [data-upload], [data-go-detail], [data-toast]");
+  const target = event.target.closest("[data-route], [data-open-course], [data-version], [data-side-tab], [data-asset-tab], [data-toggle-compare], [data-toggle-compact], [data-toggle-resource-scope], [data-jump-chunk], [data-jump-toc], [data-scroll-top], [data-scroll-bottom], [data-open-resource-panel], [data-export], [data-close-modal], [data-open-drawer], [data-close-drawer], [data-upload], [data-go-detail], [data-toast]");
   if (!target) return;
 
   if (target.dataset.route) window.location.hash = `#/${target.dataset.route}`;
   if (target.dataset.openCourse) window.location.hash = `#/courses/${target.dataset.openCourse}`;
   if (target.dataset.version) {
     version = target.dataset.version;
-    compareMode = false;
     renderDetail();
   }
   if (target.dataset.sideTab) {
@@ -1050,6 +1140,10 @@ document.addEventListener("click", (event) => {
   }
   if (target.dataset.jumpChunk) {
     currentChunkId = target.dataset.jumpChunk;
+    if (compareMode) {
+      renderDetail();
+      return;
+    }
     const node = document.querySelector(`#${target.dataset.jumpChunk}`);
     if (node) node.scrollIntoView({ behavior: "smooth", block: "start" });
     updateChunkContext();
@@ -1058,6 +1152,8 @@ document.addEventListener("click", (event) => {
     const node = document.querySelector("#chunkToc");
     if (node) node.scrollIntoView({ behavior: "smooth", block: "start" });
   }
+  if (target.dataset.scrollTop !== undefined) scrollToDetailTop();
+  if (target.dataset.scrollBottom !== undefined) scrollToDetailBottom();
   if (target.dataset.export !== undefined) openExport();
   if (target.dataset.closeModal !== undefined) closeExport();
   if (target.dataset.openDrawer) openDrawer(target.dataset.openDrawer, Number(target.dataset.index || 0));
@@ -1066,6 +1162,21 @@ document.addEventListener("click", (event) => {
   if (target.dataset.upload !== undefined || target.dataset.goDetail !== undefined) simulateUpload();
   if (target.dataset.toast) showToast(target.dataset.toast);
 });
+
+document.addEventListener("input", (event) => {
+  const target = event.target.closest("[data-scroll-range]");
+  if (!target) return;
+  scrollByRatio(target.value);
+});
+
+let scrollSyncFrame = null;
+window.addEventListener("scroll", () => {
+  if (route !== "detail" || scrollSyncFrame) return;
+  scrollSyncFrame = requestAnimationFrame(() => {
+    scrollSyncFrame = null;
+    syncQuickScroll();
+  });
+}, { passive: true });
 
 document.querySelector("#exportModal").addEventListener("click", (event) => {
   if (event.target.id === "exportModal") closeExport();
