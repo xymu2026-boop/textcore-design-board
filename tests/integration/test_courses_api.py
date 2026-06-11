@@ -137,23 +137,10 @@ def _mock_pipeline_response(system: str, _user: str) -> str:
                 "merged_review_flags": [],
             }
         )
-    if "S7 四档版本生成" in system:
-        return _json(
-            {
-                "faithful": {
-                    "body_md": "## 保真清洗\n课堂内容。",
-                    "compression": 0.9,
-                    "char_count": 12,
-                },
-                "concise": {
-                    "body_md": "## 精简整理\n课堂主线。",
-                    "compression": 0.31,
-                    "char_count": 12,
-                },
-                "study": {"body_md": "- 课堂主线", "compression": 0.09, "char_count": 6},
-                "outline": {"body_md": "- 课堂主线", "compression": 0.05, "char_count": 6},
-            }
-        )
+    if "S7 精简整理版生成" in system:
+        return _json({"body_md": "## 精简整理\n课堂主线。"})
+    if "S7 学习整理版生成" in system:
+        return _json({"body_md": "- 课堂主线"})
     if "S8 知识卡片抽取" in system:
         return _json({"knowledge_cards": []})
     if "S8 作文素材抽取" in system:

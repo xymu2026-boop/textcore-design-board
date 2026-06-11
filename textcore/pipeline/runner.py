@@ -122,12 +122,16 @@ async def run_fake_pipeline(
                     data_dir=repository.data_dir,
                     s0_result=s0_result,
                 )
+                source_char_count = sum(
+                    len(p.get("text", "")) for p in s0_result["paragraphs"]
+                )
                 versions, calls = s7_versions.run(
                     chunk_results=chunk_results,
                     classics_refs=classics_refs,
                     global_result=global_result,
                     source=source,
                     course_types=course_types,
+                    source_char_count=source_char_count,
                     llm_client=client,
                 )
                 model_calls.extend(calls)

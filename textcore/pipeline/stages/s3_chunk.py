@@ -6,10 +6,10 @@ import re
 from collections import Counter
 from typing import Any
 
-MIN_CHARS = 1500
-TARGET_CHARS = 2400
-MAX_CHARS = 3000
-HARD_MAX_CHARS = 3800
+MIN_CHARS = 2400
+TARGET_CHARS = 3600
+MAX_CHARS = 4200
+HARD_MAX_CHARS = 5200
 
 PRESERVE_TYPES = {
     "文言文原文": "classical_text",

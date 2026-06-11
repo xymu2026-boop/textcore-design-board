@@ -59,7 +59,7 @@ def test_pipeline_s4_s8_with_mock_provider_and_classics_service(tmp_path: Path) 
         "S7",
         "S8",
     }
-    assert len(provider.calls) == 5
+    assert len(provider.calls) == 5  # S4×1 + S6×1 + S7concise(逐块)×1 + S8×2
 
 
 def _mock_response(system: str, user: str) -> str:
@@ -104,31 +104,10 @@ def _mock_response(system: str, user: str) -> str:
                 "merged_review_flags": [],
             }
         )
-    if "S7 四档版本生成" in system:
-        return _json(
-            {
-                "faithful": {
-                    "body_md": "## 《静夜思》\n老师讲月光像霜，并由此进入思乡情感。",
-                    "compression": 0.9,
-                    "char_count": 32,
-                },
-                "concise": {
-                    "body_md": "## 课程摘要\n《静夜思》用月光意象表达思乡。",
-                    "compression": 0.31,
-                    "char_count": 24,
-                },
-                "study": {
-                    "body_md": "- 意象：月光\n- 情感：思乡",
-                    "compression": 0.09,
-                    "char_count": 18,
-                },
-                "outline": {
-                    "body_md": "- 《静夜思》：月光意象与思乡",
-                    "compression": 0.05,
-                    "char_count": 16,
-                },
-            }
-        )
+    if "S7 精简整理版生成" in system:
+        return _json({"body_md": "## 课程摘要\n《静夜思》用月光意象表达思乡。"})
+    if "S7 学习整理版生成" in system:
+        return _json({"body_md": "- 意象：月光\n- 情感：思乡"})
     if "S8 知识卡片抽取" in system:
         return _json(
             {

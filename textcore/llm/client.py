@@ -91,9 +91,9 @@ class MockProvider:
 # 可用模型：deepseek-v4-pro（强）/ deepseek-v4-flash（便宜）。
 STAGE_MODEL = {
     "S2": "deepseek-v4-flash",  # 话题分割：分类，便宜
-    "S4": "deepseek-v4-flash",  # 分块清洗：~17 次，便宜
+    "S4": "deepseek-v4-pro",    # 分块保真清洗：忠实度要求高，flash 偏概括，改用 pro
     "S6": "deepseek-v4-pro",    # 全局合并：判断
-    "S7": "deepseek-v4-pro",    # 四档版本：作文点评最吃判断
+    "S7": "deepseek-v4-pro",    # 精简/学习版生成
     "S8": "deepseek-v4-pro",    # 卡片/素材
 }
 DEFAULT_MODEL = "deepseek-v4-pro"
