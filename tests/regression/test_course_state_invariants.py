@@ -16,8 +16,8 @@ ROOT = Path(__file__).resolve().parents[2]
 REAL_FIXTURE = ROOT / "data" / "processed" / "course_2026_652f24cc" / "course_state.json"
 EXAMPLE_FIXTURE = ROOT / "schemas" / "course_state.example.json"
 COMPRESSION_RANGES = {
-    "faithful": (0.65, 0.90),
-    "concise": (0.25, 0.45),
+    "faithful": (0.70, 0.95),
+    "concise": (0.22, 0.45),
     "study": (0.05, 0.15),
     "outline": (0.03, 0.10),
 }

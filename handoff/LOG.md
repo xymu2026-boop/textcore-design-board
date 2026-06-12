@@ -15,3 +15,4 @@
 [2026-06-12 20:26 CST] CODEX: P1 确定性scaffold模块 完成
 [2026-06-12 20:36:10 CST] CODEX: P2 S4比例门+兜底 完成
 [2026-06-12 20:49:38 CST] CODEX: P3 S7 scaffold+兜底 完成
+[2026-06-12 20:59:39 CST] CODEX: P4 S9 preferred/hard区间 完成

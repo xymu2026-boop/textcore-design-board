@@ -1,68 +1,51 @@
-# OUTBOX · Codex · P3 S7 scaffold + 兜底
+# OUTBOX · Codex · P4 S9 preferred/hard 区间
 
 ## 改动范围
 
-- 修改 `textcore/pipeline/stages/s7_versions.py`。
-- 修改 `prompts/stages/s7_concise.system.md`。
-- 新增 `tests/unit/test_s7_versions.py`。
-- 更新 `tests/unit/test_pipeline_s4_s8.py` 的 S7 调用次数断言。
-- 未改 schema、前端、API、S4/S5/S6/S8 或其它 stage。
+- 修改 `textcore/pipeline/stages/s9_quality.py`。
+- 修改 `tests/unit/test_s9_quality.py`。
+- 更新 `tests/regression/test_course_state_invariants.py` 的四档 hard 区间常量。
+- 未改 schema、前端、API 或其它 stage。
 - 未提交 git。
 
-## S7 改造点
+## S9 改造点
 
-- 每个 chunk 先调用 P1 `build_chunk_scaffolds(...)` 生成 faithful/concise/study/outline 四档确定性基线。
-- `faithful` 保持原逻辑：拼装 S4 `cleaned_text`，不调 LLM。
-- `concise` 仍逐块调 LLM，但 user payload 新增：
-  - `coverage_scaffold = scaf["concise"]["body_md"]`
-  - `hard_min_chars = int(text_char_count(cleaned_text) * 0.25)`
-- `concise` 比例门口径：
-  - 逐块计算 `text_char_count(llm_body) / text_char_count(S4 cleaned_text)`。
-  - 调 `check_version_ratio(version_key="concise", hard=(0.22, 0.45))`。
-  - 兜底只保护低覆盖：低于 `hard_min_chars` 或低于 hard 下限 0.22 时，回退该块 `scaf["concise"]["body_md"]`。
-  - 高于 hard 上限的 LLM 输出目前保留，避免很短 chunk 因标题字符触发回退。
-- `study` 改为直接拼装各块 `scaf["study"]["body_md"]`，不再依赖 S4 `key_points`。
-- `outline` 改为拼装各块 `scaf["outline"]["body_md"]`；当 S6 `outline_tree` 标题更丰富且合并后仍通过 outline ratio gate 时，合并 S6 标题。
-- 四档最终 `char_count` / `compression` 仍由 S7 `_version` 从实际 `body_md` 计算，`compression` clamp 到 `<= 1`。
+- S9 不再用旧单一 `COMPRESSION_RANGES` 判断越界，改为调用 `check_version_ratio(...)` 的 preferred/hard 两档结果。
+- 四档区间沿用 deterministic gate 默认值：
+  - faithful：preferred 85-93%，hard 70-95%
+  - concise：preferred 28-38%，hard 22-45%
+  - study：preferred 8-12%，hard 5-15%
+  - outline：preferred 4-7%，hard 3-10%
+- ratio 计算口径：
+  - 分子优先使用 version `char_count`；缺失时用 `body_md` 重新计算 visible char count。
+  - 分母优先从 `chunk_results` 的 `source_char_count/source_chars/original_char_count/original_chars` 或 `original_text/current_chunk_original/chunk_original/source_text/raw_text` 计算。
+  - 正式 state 当前不保留 S0 原文到 `chunk_results`，因此兼容回退为通过各 version 的 `char_count/compression` 估算同一个原文字数中位值，再用 `char_count / source_chars` 评估。
+- preferred 内不写 `main_risks`。
+- hard 内但偏离 preferred 写 `[warning] ...`，不触发 `recommended_human_review`。
+- hard 外写 `[risk] ...`，并触发 `recommended_human_review=True`。
+- 复核 flag 聚合、古文 diff/canonical_text 风险、coverage 判断保持原逻辑。
+- `quality_score` 对 ratio finding 做轻量扣分：warning -3，risk -7；其它扣分逻辑保持原样。
 
-## 提示词
+## warning/risk 文案口径
 
-- `s7_concise.system.md` 已更新输入说明：加入 `coverage_scaffold`、`hard_min_chars`。
-- 任务从自行摘要改为在 scaffold 覆盖范围上润色成段，并明确不得低于 `hard_min_chars`、不得漏掉 scaffold 主要讲解链条。
-- `s7_study.system.md` 未改；S7 当前不再调用它。
-
-## 调用次数
-
-- S7 仍只对 concise 逐 chunk 调 LLM。
-- study / outline 不调 LLM。
-- 现有 S4-S8 mock 整链仍为 5 次 provider 调用：S4×1 + S6×1 + S7 concise×1 + S8×2。
-- 新增断言：S7 concise 调用次数等于 `chunk_results` 数；S7 study prompt 和旧 S7 四档 prompt 调用次数为 0。
+- warning 示例：`[warning] 精简整理版占比 23%，低于理想区间(28-38%)但在可接受范围`
+- risk 示例：`[risk] 保真清洗版占比 50%，低于硬底线(70-95%)，建议人工复核`
+- 高于区间时同样使用 `高于理想区间(...)` / `高于硬底线(...)`。
 
 ## 测试
 
-- 新增 `test_s7_concise_falls_back_to_scaffold_when_llm_is_too_short`：
-  - mock concise 返回过短。
-  - 断言回退 `concise` scaffold。
-  - 断言整篇 concise 占比 `>= 0.25`。
-  - 断言 user payload 包含 `coverage_scaffold` 和 `hard_min_chars`。
-- 新增 `test_s7_concise_keeps_normal_llm_result_without_fallback`：
-  - mock concise 返回正常覆盖结果。
-  - 断言使用 LLM body，不回退。
-- 新增 `test_s7_study_and_outline_use_deterministic_scaffolds_with_target_ratios`：
-  - 构造无 `key_points` chunk_results。
-  - 断言四档非空。
-  - 断言 study ratio 在 8%-12%，outline ratio 在 4%-7%。
-  - 断言 study/旧四档 prompt 未调用。
+- 新增/调整 `tests/unit/test_s9_quality.py`：
+  - 四档 char_count 全在 preferred：不出现 `[warning]` / `[risk]` ratio finding。
+  - concise=23%：出现 warning 文案，且不强制 human review。
+  - faithful=50%：出现 risk 文案，且 `recommended_human_review=True`。
+  - 保留原有 review flag 聚合、古文 diff、coverage/canonical_text 风险覆盖。
+- 更新 regression invariant 的 compression 常量到 hard 区间，匹配 P4 口径。
 
 ## 验证
 
-- `.venv/bin/python -m pytest tests/unit/test_s7_versions.py tests/integration/test_courses_api.py -q`：4 passed，1 个既有 StarletteDeprecationWarning。
-- `.venv/bin/python -m ruff check textcore/pipeline/stages/s7_versions.py tests/unit/test_s7_versions.py tests/unit/test_pipeline_s4_s8.py tests/integration/test_courses_api.py`：通过。
+- `.venv/bin/python -m pytest tests/unit/test_s9_quality.py tests/regression/test_course_state_invariants.py -q`：6 passed。
+- `.venv/bin/python -m ruff check textcore/pipeline/stages/s9_quality.py tests/unit/test_s9_quality.py tests/regression/test_course_state_invariants.py`：通过。
 - `make check`：通过。
   - 前端 typecheck/lint 通过。
   - `scripts/check_api.py` 通过。
-  - 全量 pytest：36 passed，1 个既有 StarletteDeprecationWarning。
-
-## 遗留
-
-- S7 `run(...)` 当前没有 S3 原始 paragraph 文本输入；scaffold 的 `original_text` 会优先读 chunk_result 中可能存在的 `original_text/current_chunk_original/chunk_original/source_text/raw_text`，实际流水线里没有这些字段时退到 S4 `cleaned_text`。未改 runner，避免越过本任务边界。
+  - 全量 pytest：39 passed，1 个既有 StarletteDeprecationWarning。
