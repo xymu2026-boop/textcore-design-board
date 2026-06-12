@@ -776,6 +776,36 @@ a {
   color: var(--color-text-muted);
 }
 
+.raw-chunk {
+  display: grid;
+  gap: 14px;
+}
+
+.raw-chunk p {
+  margin: 0;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(222, 214, 200, 0.72);
+  color: var(--color-text);
+}
+
+.raw-chunk p:last-child {
+  padding-bottom: 0;
+  border-bottom: 0;
+}
+
+.raw-chunk span {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--color-text-subtle);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.compare-outline-list {
+  margin: 0;
+  padding-left: 1.35em;
+}
+
 .floating-toc-sidebar {
   position: sticky;
   top: 96px;

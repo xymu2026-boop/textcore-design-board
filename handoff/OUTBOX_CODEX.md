@@ -1,42 +1,51 @@
-# OUTBOX · Codex · A2.1b 阅读导航补全
+# OUTBOX · Codex · A2.2 版本切换 + 原文对照分块同步
 
 ## 改动范围
 
 - 功能代码只改 `apps/web/src/App.tsx` 和 `apps/web/src/styles.css`。
 - 未改 `apps/api`、`textcore`、schemas、prompts、`docs/prototype/`。
-- 未引入前端硬编码业务数据。
+- 未引入硬编码业务数据。
 - 未提交 git。
 
-## 只看段落标题 / 查看完整正文
+## 四档版本切换保位
 
-- 详情页 sticky 控制栏右侧新增 `只看段落标题` / `查看完整正文` 按钮。
-- 默认保持完整正文；点击后给阅读正文容器加 `compact-long`。
-- 紧凑模式隐藏每个 `.long-section` 内除 `h2` 外的内容，并隐藏正文前的旁征博引块，确保正文区只保留分块标题。
-- 紧凑模式下点击任一分块标题，会退出紧凑模式并平滑滚动定位到该分块。
-- 该状态不改变四档正文 tab 的当前选中版本；切换 tab 后继续使用同一套真实 chunk 锚点。
+- 详情页版本切换改为 `handleVersionChange()`，切换前记录当前 `activeChunkId`。
+- 新版本正文渲染完成后，通过 `pendingScrollChunkRef` 定位回同一 C 段，避免每次切 tab 回到顶部。
+- 左侧 C 段导航、顶部章节菜单、正文段间 `上一段` / `下一段` 继续共用同一个 `activeChunkId`。
+- 对 chunk 锚点生成做了补强：若正文没有原生 `id=chunk_id`，优先按已有 `li` / `h2` 对齐；若版本正文的标题数少于 chunk 数，则按正文 DOM 子节点顺序近似分配到真实 chunk id，保证导航和保位仍可用。
 
-## 段间导航
+## 原文对照分块同步
 
-- 在 `anchoredHtmlFromBody()` 生成真实 chunk 锚点后，新增 `htmlWithChunkNavigation()` 对正文 HTML 做结构化增强。
-- 每个已定位到的 chunk section 末尾注入一行：
-  - `上一段`
-  - `回到目录`
-  - `下一段`
-- 按钮不绑定硬编码课程数据，而是从 `buildChunkNavItems(course)` 得到的真实 `chunks[].chunk_id` 顺序生成。
-- 点击逻辑通过阅读区事件委托处理：
-  - `上一段` / `下一段` 调用现有 `jumpTo()`，平滑滚动并更新当前 chunk 高亮。
-  - `回到目录` 平滑滚动到详情页课程摘要 / 顶部目录区域。
-  - 首段的 `上一段` 和末段的 `下一段` 自动 disabled。
-- 样式补齐 `.chunk-footer` / `.chunk-nav-button`，使用浅色圆角按钮和置灰禁用态，对齐 demo 的段间导航布局。
+- 对照视图不再展示整篇原文或整篇当前版本。
+- 左栏使用真实 API 字段：
+  - `chunks[].chunk_id`
+  - `chunks[].paragraph_range`
+  - `paragraphs[].pid`
+  - `paragraphs[].source_order`
+  - `paragraphs[].speaker`
+  - `paragraphs[].ts`
+  - `paragraphs[].text`
+- 左栏按当前 C 段的 `paragraph_range` 从 `paragraphs` 中筛出同段原始转写稿。
+- 右栏使用当前选中版本的 `versions[version].body_md`，先转换/补齐为 chunk 锚点正文，再用当前 `activeChunkId` 只截取同一 C 段 HTML。
+- 点击左侧章节栏、顶部章节菜单、段间导航时，正常阅读和对照视图都更新同一个 `activeChunkId`，左右栏同步切到同一块。
+- 退出对照后回到正常阅读，当前版本和当前 C 段状态保留。
 
-## 与 demo 仍存差异
+## 需要后端补字段
 
-- demo 的紧凑模式保留了部分 `chunk-meta`；本次按 A2.1b 验收要求处理为正文区只剩分块标题。
-- `回到目录` 在当前 React 版中定位到课程摘要 / 顶部控制区，而不是 demo hash 版里的 `#chunkToc` 节点；视觉效果仍是回到首屏目录区域。
-- 本步未做旁征博引浮层、复核 hover、资源联动、原文对照同步，按 INBOX 留给 A2.2/A2.3。
+- 当前 schema 只有 `versions[version].body_md` 整体正文，没有每个版本的显式 chunk 分节结构。
+- 对于已经按 chunk 分节或标题数量与 chunk 数一致的版本，前端可精确截取同 C 段。
+- 对于正文没有 chunk 锚点、且标题数量少于 chunk 数的版本，前端只能按 DOM 顺序近似分配。若要完全精确，需要后端补充类似：
+  - `versions[version].chunks[] = { chunk_id, body_md }`
+  - 或在 `versions[version].body_md` 内稳定输出 `<section id="{chunk_id}">...</section>`。
+
+## 与 demo 差异
+
+- demo 数据内置 `chunk.rawHtml` 和版本 HTML chunk section；React 版只使用真实 API 数据。
+- React 版的原文左栏由 `paragraphs + paragraph_range` 实时生成，不使用 demo 的内置原文 HTML。
+- 后端未提供版本分块字段时，React 版会尽力按已有正文结构近似切分，并已在上方记录字段缺口。
 
 ## 验证
 
 - `cd apps/web && npm run check`：通过。
 - `cd apps/web && npm run build`：通过。
-- `cd apps/web && npm run dev`：未能启动浏览器视觉检查，当前沙箱拒绝 dev server 监听 `::1:5173`，报 `listen EPERM`。
+- 浏览器视觉检查：本会话沙箱拒绝 dev server 监听，`npm run dev` 报 `listen EPERM: operation not permitted ::1:5173`；改用 `npx vite --host 127.0.0.1 --port 5174` 仍被拒绝 `listen EPERM`。

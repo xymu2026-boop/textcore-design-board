@@ -15,6 +15,7 @@ import type {
   CourseStatus,
   KnowledgeCard,
   OutlineNode,
+  Paragraph,
   ReviewFlag,
   StatusEvent,
   WritingMaterial,
@@ -220,24 +221,47 @@ function anchoredHtmlFromBody(input: string | undefined, navItems: ChunkNavItem[
 
   const h2s = children.filter((child) => child.tagName === "H2");
   if (h2s.length > 0) {
-    h2s.slice(0, ids.length).forEach((heading, index) => {
-      wrapUntilNext(body, heading, ids[index], (node) => node.tagName === "H2" && node !== heading);
-    });
-    return body.innerHTML;
+    if (h2s.length >= ids.length) {
+      h2s.slice(0, ids.length).forEach((heading, index) => {
+        wrapUntilNext(body, heading, ids[index], (node) => node.tagName === "H2" && node !== heading);
+      });
+      return body.innerHTML;
+    }
+    return distributeBodyChildrenAcrossChunks(body, ids);
   }
 
+  return distributeBodyChildrenAcrossChunks(body, ids);
+}
+
+function distributeBodyChildrenAcrossChunks(body: HTMLElement, ids: string[]): string {
+  const children = Array.from(body.children);
+  if (!children.length) return body.innerHTML;
+
   const groupSize = Math.max(1, Math.ceil(children.length / ids.length));
-  ids.forEach((id) => {
-    const section = document.createElement("section");
+  body.replaceChildren();
+  ids.forEach((id, index) => {
+    const section = body.ownerDocument.createElement("section");
     section.id = id;
     section.className = "long-section";
+    children.slice(index * groupSize, (index + 1) * groupSize).forEach((child) => section.appendChild(child));
     body.appendChild(section);
-    Array.from(body.children)
-      .filter((child) => child !== section)
-      .slice(0, groupSize)
-      .forEach((child) => section.appendChild(child));
   });
   return body.innerHTML;
+}
+
+function htmlForChunk(html: string, chunkId: string): string {
+  if (!html || !chunkId || typeof DOMParser === "undefined") return html;
+
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const node = document.body.querySelector(`#${cssIdentifier(chunkId)}`);
+  if (!node) return html;
+  if (node.tagName === "LI") {
+    const list = document.createElement("ol");
+    list.className = "compare-outline-list";
+    list.appendChild(node.cloneNode(true));
+    return list.outerHTML;
+  }
+  return node.outerHTML;
 }
 
 function htmlWithChunkNavigation(html: string, navItems: ChunkNavItem[]): string {
@@ -597,6 +621,47 @@ function buildChunkNavItems(course: CourseState): ChunkNavItem[] {
       title,
     };
   });
+}
+
+function paragraphsForChunk(course: CourseState, chunkId: string): Paragraph[] {
+  const paragraphs = course.paragraphs ?? [];
+  const chunk = course.chunks?.find((item) => item.chunk_id === chunkId);
+  if (!chunk || !paragraphs.length) return paragraphs;
+
+  const orderByPid = new Map(
+    paragraphs.map((paragraph, index) => [
+      paragraph.pid,
+      paragraph.source_order || paragraphNumber(paragraph.pid) || index + 1,
+    ]),
+  );
+  const startOrder = orderByPid.get(chunk.paragraph_range[0]) ?? paragraphNumber(chunk.paragraph_range[0]) ?? 1;
+  const endOrder = orderByPid.get(chunk.paragraph_range[1]) ?? paragraphNumber(chunk.paragraph_range[1]) ?? startOrder;
+  const minOrder = Math.min(startOrder, endOrder);
+  const maxOrder = Math.max(startOrder, endOrder);
+
+  return paragraphs.filter((paragraph, index) => {
+    const order = paragraph.source_order || paragraphNumber(paragraph.pid) || index + 1;
+    return order >= minOrder && order <= maxOrder;
+  });
+}
+
+function RawChunk({ paragraphs }: { paragraphs: Paragraph[] }) {
+  if (!paragraphs.length) {
+    return <p className="muted">后端尚未返回该分块的 paragraphs。</p>;
+  }
+
+  return (
+    <div className="raw-chunk">
+      {paragraphs.map((paragraph) => (
+        <p key={paragraph.pid}>
+          <span>
+            {[paragraph.pid, paragraph.speaker, paragraph.ts].filter(Boolean).join(" · ")}
+          </span>
+          {paragraph.text}
+        </p>
+      ))}
+    </div>
+  );
 }
 
 function OutlineTree({ nodes, onJump }: { nodes: OutlineNode[]; onJump: (anchor?: string) => void }) {
@@ -1518,6 +1583,7 @@ function CourseDetail({
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [popover, setPopover] = useState<KeywordInsight | null>(null);
   const [activeChunkId, setActiveChunkId] = useState("");
+  const pendingScrollChunkRef = useRef<string | null>(null);
 
   useEffect(() => {
     let active = true;
@@ -1562,6 +1628,10 @@ function CourseDetail({
   const jumpTo = (anchor?: string) => {
     if (!anchor) return;
     setActiveChunkId(anchor);
+    if (compare) {
+      document.querySelector(".compare-view")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
     const element = document.getElementById(anchor);
     if (element) {
       element.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1582,6 +1652,22 @@ function CourseDetail({
     [course, chunkNavItems, version],
   );
   const readableBodyHtml = useMemo(() => htmlWithChunkNavigation(bodyHtml, chunkNavItems), [bodyHtml, chunkNavItems]);
+  const currentChunkId = activeChunkId || chunkNavItems[0]?.id || "";
+  const currentChunk = chunkNavItems.find((item) => item.id === currentChunkId);
+  const compareRightHtml = useMemo(() => htmlForChunk(bodyHtml, currentChunkId), [bodyHtml, currentChunkId]);
+  const compareParagraphs = useMemo(
+    () => (course && currentChunkId ? paragraphsForChunk(course, currentChunkId) : []),
+    [course, currentChunkId],
+  );
+  const handleVersionChange = (nextVersion: VersionKey) => {
+    if (nextVersion === version) return;
+    const chunkToKeep = currentChunkId || chunkNavItems[0]?.id || "";
+    if (chunkToKeep) {
+      setActiveChunkId(chunkToKeep);
+      pendingScrollChunkRef.current = chunkToKeep;
+    }
+    setVersion(nextVersion);
+  };
 
   const handleReadingClick = (event: MouseEvent<HTMLElement>) => {
     const target = event.target;
@@ -1640,6 +1726,16 @@ function CourseDetail({
     return () => observer.disconnect();
   }, [readableBodyHtml, chunkNavItems, compare]);
 
+  useEffect(() => {
+    const chunkId = pendingScrollChunkRef.current;
+    if (!chunkId || compare) return undefined;
+    pendingScrollChunkRef.current = null;
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(chunkId)?.scrollIntoView({ behavior: "auto", block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [readableBodyHtml, compare]);
+
   if (error) {
     return (
       <StatePanel
@@ -1656,10 +1752,6 @@ function CourseDetail({
   }
 
   const rawChars = courseRawCharCount(course);
-  const rawText = (course.paragraphs ?? [])
-    .slice(0, 24)
-    .map((paragraph) => `${paragraph.speaker ?? ""} ${paragraph.ts ?? ""}\n${paragraph.text}`)
-    .join("\n\n");
   const reviewFlags = openReviewFlags(course);
   const firstClassics = course.classics_refs?.find((item) => item.matched) ?? null;
   const keywordInsights = buildKeywordInsights(course, firstClassics);
@@ -1672,7 +1764,7 @@ function CourseDetail({
   const isProcessing = course.status === "created" || course.status === "processing";
   const isFailed = course.status === "failed";
   const subtitle = courseSubtitle(course);
-  const currentChunkLabel = chunkLabel(activeChunkId || (chunkNavItems[0]?.id ?? "全文"));
+  const currentChunkLabel = currentChunk?.label ?? chunkLabel(currentChunkId || "全文");
 
   return (
     <section>
@@ -1726,7 +1818,7 @@ function CourseDetail({
         />
       ) : (
       <div className="detail-layout">
-        <ChunkToc activeId={activeChunkId} course={course} onJump={jumpTo} />
+        <ChunkToc activeId={currentChunkId} course={course} onJump={jumpTo} />
         <article className="reading-panel">
           <section className="source-summary">
             <div className="overview-card">
@@ -1776,7 +1868,7 @@ function CourseDetail({
             </div>
           </section>
           <section className="sticky-control-bar">
-            <VersionTabs course={course} onChange={setVersion} rawChars={rawChars} value={version} />
+            <VersionTabs course={course} onChange={handleVersionChange} rawChars={rawChars} value={version} />
             <button
               className={`button-secondary compare-action ${compare ? "active" : ""}`}
               onClick={() => setCompare((current) => !current)}
@@ -1790,7 +1882,7 @@ function CourseDetail({
                   章节目录 <span className="current-chunk-label">{currentChunkLabel}</span>
                 </summary>
                 <div className="chapter-menu-list">
-                  <ChunkMenuList activeId={activeChunkId} course={course} onJump={jumpTo} />
+                  <ChunkMenuList activeId={currentChunkId} course={course} onJump={jumpTo} />
                 </div>
               </details>
               <button className="tiny-button" onClick={() => setCompact((current) => !current)} type="button">
@@ -1801,12 +1893,18 @@ function CourseDetail({
           {compare ? (
             <div className="compare-view" onClick={handleReadingClick}>
               <section className="compare-col">
-                <h3>原始转写稿</h3>
-                <pre>{rawText || "后端尚未返回 paragraphs。"}</pre>
+                <h3>
+                  原始转写稿｜{currentChunk?.label ?? currentChunkLabel}
+                </h3>
+                {currentChunk ? <p className="muted">{currentChunk.title} · {currentChunk.meta}</p> : null}
+                <RawChunk paragraphs={compareParagraphs} />
               </section>
               <section className="compare-col">
-                <h3>{VERSION_LABELS[version]}</h3>
-                <div className={`reading-content ${compact ? "compact-long" : ""}`} dangerouslySetInnerHTML={{ __html: readableBodyHtml }} />
+                <h3>
+                  当前整理版｜{VERSION_LABELS[version]}
+                </h3>
+                <p className="muted">当前只对照正在阅读的正文分段。</p>
+                <div className={`reading-content ${compact ? "compact-long" : ""}`} dangerouslySetInnerHTML={{ __html: compareRightHtml }} />
               </section>
             </div>
           ) : (
