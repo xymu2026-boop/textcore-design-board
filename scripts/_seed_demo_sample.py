@@ -1,4 +1,4 @@
-"""把 demo 原型样本抽成 course_state 入库。
+"""把 demo 原型样本抽成 course_state 入库（含 chunks + paragraphs，使章节栏/对照可用）。
 用法: python scripts/_seed_demo_sample.py <json_path> <course_id> <课程标题>
 """
 import json
@@ -27,6 +27,35 @@ def ver(html: str) -> dict:
 
 vmap = {"faithful": "clean", "concise": "digest", "study": "study", "outline": "outline"}
 versions = {k: ver(demo["versions"][s]) for k, s in vmap.items()}
+
+# 从 demo chunks 的 rawHtml 抽出段落，构造 paragraphs + chunks（使章节栏/对照可用）
+paragraphs: list[dict] = []
+chunks: list[dict] = []
+pid_counter = 0
+for ch in demo["chunks"]:
+    raw = ch.get("rawHtml", "")
+    # 取 <p> 文本，排除 chunk-meta 行
+    ps = re.findall(r"<p[^>]*>(.*?)</p>", raw, flags=re.S)
+    start_pid = None
+    for p in ps:
+        text = re.sub(r"<[^>]+>", "", p).strip()
+        if not text or "原段落" in text or "约" in text[:6]:
+            continue
+        pid_counter += 1
+        pid = f"p{pid_counter:04d}"
+        if start_pid is None:
+            start_pid = pid
+        paragraphs.append({"pid": pid, "text": text, "source_order": pid_counter})
+    end_pid = f"p{pid_counter:04d}" if pid_counter else "p0001"
+    chunks.append(
+        {
+            "chunk_id": ch["id"],
+            "paragraph_range": [start_pid or "p0001", end_pid],
+            "primary_type": "modern_reading",
+            "context_before": "",
+            "must_preserve_spans": [],
+        }
+    )
 
 review_flags = [
     {
@@ -59,6 +88,8 @@ state = {
         "dominant_type": "modern_reading",
         "mixed": True,
     },
+    "paragraphs": paragraphs,
+    "chunks": chunks,
     "versions": versions,
     "default_version": "concise",
     "global": {
@@ -83,4 +114,4 @@ state = {
 validate(state)
 CourseRepository().save_state(state)
 ratios = {k: f"{versions[k]['compression']:.0%}" for k in versions}
-print(f"OK {title} 入库 {course_id} 四档保留率: {ratios}")
+print(f"OK {title} 入库 {course_id} 四档{ratios} chunks={len(chunks)} paragraphs={len(paragraphs)}")
