@@ -1,69 +1,39 @@
-# INBOX · Codex · P1 确定性 scaffold 模块（泛化版，纯函数+单测，零 LLM）
+# INBOX · Codex · P2 S4 接入 faithful scaffold + 比例门 + 重试 + 兜底
 
-> 流水线融合 Phase 1。当前分支 `pipeline-fusion`。**只新增 `textcore/pipeline/deterministic/` 和 `tests/`**。
-> **不动 schema、前端、API、现有 S0-S10 stage 文件**（本步只产出可被未来调用的模块，不接进流水线）。
-> 结果写 `handoff/OUTBOX_CODEX.md`，`LOG.md` 追加一行。**不提交 git**（Claude 审查后提交）。
-> 背景见 `handoff/TextCore_确定性工具与LLM流水线融合改造方案.md` 和 `..._独立高保真样例生成工具说明.md`；参考源码 `tools/generate_full_samples.py`（只读，抽思想不照搬）。
+> 流水线融合 Phase 2。分支 `pipeline-fusion`。**改 `textcore/pipeline/stages/s4_clean.py` + 新增/改测试**。
+> 不动 schema、前端、API、其它 stage。**不提交 git**。结果写 `handoff/OUTBOX_CODEX.md`，`LOG.md` 追加一行。
+> P1 已完成：`textcore/pipeline/deterministic/`（transcript_cleaner / sentence_ranker / version_scaffold / quality_gates）可直接用。
 
-## 目标
-把 `tools/generate_full_samples.py` 的确定性清洗/切句/打分/按比例抽取，抽成**泛化的、可复用的纯函数模块**，作为后续 S4/S7 的 scaffold(基线) 与 quality gate(比例门)。本步只做模块+单测，**不接进流水线**。
+## 要解决的问题
+S4 当前只校验 schema，不校验保真清洗的长度比例。LLM 把清洗做成摘要时（cleaned_text 远短于原文），没有兜底，后续 S7 无法恢复被删的讲解。本步加"比例门 + 重试 + 确定性兜底"。
 
-## ★最重要的要求：泛化，不要照搬 demo 的硬编码
-源工具的 `chunk_title()` 和部分关键词（醉叟/袁宏道/明线暗线/W教授…）是**为那 2 篇 demo 手写死的**，对其它文章会失效。本步必须泛化：
+## 改造 `s4_clean.py`（保持现有签名/返回结构不变）
+对每个 chunk：
+1. 取该 chunk 的原文：用现有 `llm_stage.paragraph_text_for_chunk(chunk, paragraphs)`。原文字数 = `original_chars`。
+2. 正常调 LLM 得到 `cleaned_text`（现有逻辑），算 `ratio = text_len(cleaned_text)/original_chars`。
+3. **比例门**（用 `deterministic.quality_gates.check_version_ratio`，version_key="faithful"，preferred 0.85-0.93/hard 0.70-0.95）：
+   - ratio ≥ 0.70：接受。
+   - ratio < 0.70：**重试一次**，user 末尾追加："你上次输出过度摘要（只剩 {ratio:.0%}）。保真清洗不是摘要，请逐句保留老师讲解，保留原文 70%-90%。" 重试后再算 ratio。
+   - 仍 < 0.70：**回退确定性兜底**——调 `deterministic.version_scaffold.build_chunk_scaffolds(...)` 取 `faithful` 的 body_md 作为 cleaned_text，并向该 chunk 的 `review_flags` 追加：
+     `{"flag_id":..., "text":"", "reason":"S4 LLM 输出低于保真比例(<70%)，已回退确定性保真清洗", "category":"other", "severity":"medium", "status":"open"}`
+     （注意 reviewFlag 必填 text+reason，text 可填简短说明如"保真清洗兜底"。）
+4. 记录每 chunk 的 model_calls（重试算 2 次）。preserve_spans（chunk.must_preserve_spans）传给 scaffold。
 
-- **关键词按"类别"组织，广谱适用**，而不是抄具体篇目的人名/篇名：
-  - 话语标记类（最通用）：第一/第二/第三/首先/其次/最后/所以/因此/总之/注意/重点/核心/关键/说明/意味着/总结
-  - 方法类：方法/步骤/技巧/规律/原则/思路
-  - 阅读题类：题型/答题/概括/赏析/分析/作用/表达效果/中心/主旨/引用/比喻/修辞
-  - 作文类：作文/立意/选材/结构/开头/结尾/语言/详略/描写/议论
-  - 文言/古诗类：文言文/古诗/词/句读/翻译/字词/通假/活用/意象/典故
-  - 这些是**通用语文课词表**，不含具体人名/篇名。
-- **章节标题不要硬编码**：`scaffold` 的 chunk 标题用通用启发式（取本块得分最高句的前 N 字 / 或首个重要句的主干），并注明"标题后续可由 S6/LLM 改写"。不要写 `if "袁宏道" in text: return ...` 这类样本规则。
-- 错字：**不要在清洗里硬替换**（源工具那句 `罪首→醉叟`、`古兽行销→骨瘦形销` 不要照搬）。只保留极少数高置信通用口误，其余疑似错字一律产出 `review_flags` 候选，交给后续 S5 古文参考服务核对。
+## 边界
+- 不改 schema、`$defs/chunkResult` 结构；cleaned_text 仍是字符串。
+- 不动 S5-S10、前端、API。不照搬 demo 硬编码。不提交 git。
+- 兜底用 P1 的 deterministic 模块，不要重复实现清洗逻辑。
 
-## 新增模块（`textcore/pipeline/deterministic/`）
-1. `__init__.py`
-2. `transcript_cleaner.py`
-   - `clean_transcript_text(text, *, preserve_spans=()) -> {"text", "review_flags", "applied_repairs"}`
-   - 去时间戳/说话人前缀、去口头禅(嗯/呃/这个/那个/是不是/对吧/能理解吧)、去明显课堂管理语、压缩重复标点。
-   - **`preserve_spans` 内的文言文/古诗词/作文原句一字不改**（regex 不得触碰这些片段）。
-   - 疑似错字 → `review_flags` 候选，不硬改。
-3. `sentence_ranker.py`
-   - `sentence_split(text) -> list[str]`
-   - `score_sentence(sentence, position, *, keyword_sets) -> int`（类别词表加权 + 位置加权 + 长度过滤 + 噪声降权）
-   - `important_sentences(text|paragraphs, limit) -> list[str]`
-   - 关键词用上面的**类别词表**（放模块常量，便于扩展）。
-4. `version_scaffold.py`
-   - `build_chunk_scaffolds(*, chunk_id, title, original_text, cleaned_text=None, course_types=None, preserve_spans=()) -> dict`
-   - 产出四档基线（用 `char_count` 真实计算、`compression`）：
-     - `faithful`：≈85%–92%（在 cleaned_text 基础上轻拼装，保留逐句）
-     - `concise`：≈30%–35%（抽取式，`target_chars=max(760,int(src*0.32))`，逐句选到达标，再按原序排列——参考源 `medium_digest_sentences`）
-     - `study`：≈8%–12%（重点句/方法句列表）
-     - `outline`：≈4%–6%（块标题 + 1–2 条核心句）
-   - 返回结构与 `$defs/version` 一致（body_md/char_count/compression），便于后续直接用。
-5. `quality_gates.py`
-   - `check_version_ratio(*, version_key, actual_chars, source_chars, preferred, hard) -> {"ok", "level"("ok"|"warning"|"risk"), "ratio", "action"("accept"|"retry"|"fallback")}`
-   - 区间：faithful preferred 0.85-0.93 / hard 0.70-0.95；concise 0.28-0.38 / 0.22-0.45；study 0.08-0.12 / 0.05-0.15；outline 0.04-0.07 / 0.03-0.10。
-
-## 单测（`tests/unit/test_deterministic_scaffold.py`，不依赖真实 LLM）
-- 对 **4 篇真实 Word**（都在 `素材/`）跑 S0→S3（用现有 `parse_docx/preclean/segment/chunk`），再对每个 chunk 调 `build_chunk_scaffolds`：
-  1. 五上-人文综合涵养-寒假-第二讲-虚实-晚秋初冬.docx
-  2. 五上-人文综合涵养-寒假-第六讲-文言文阅读训练1.docx
-  3. 五上-人文综合涵养-寒假-第三讲-隐显-偷钱+第四讲-文言文-醉叟传1.docx
-  4. 五上-人文综合涵养-寒假-第七讲-阅读理解+作文点评2.docx
-- 断言（整篇汇总比例，对原文总字数）：faithful 0.83–0.95 / concise 0.26–0.40 / study 0.06–0.14 / outline 0.03–0.08。**4 篇都要过**（验证泛化）。
-- 断言：每个 chunk 四档都非空；preserve_spans 文本在 faithful 里原样存在；transcript_cleaner 不改 preserve_spans。
-- `quality_gates` 单测：给定过短/超长 actual_chars，返回正确 level/action。
-
-## 不做 / 边界
-- 不接进 S4/S7/runner（P2/P3 再做）。不动 schema、前端、API、现有 stage 文件。
-- 不照搬源工具的硬编码篇目规则/错字替换/HTML 渲染。
-- 不提交 git。
+## 测试（`tests/unit/test_pipeline_s4_s8.py` 或新增，mock LLM，不联网）
+- mock provider 第一次返回**过短** cleaned_text（如原文 10%）→ S4 触发重试。
+- 重试仍返回过短 → S4 回退确定性 faithful scaffold，且该 chunk 出现 pipeline_fallback 类 review_flag、cleaned_text 长度 ≥ 原文 70%。
+- mock provider 返回正常长度（≥70%）→ 不重试不兜底，正常通过。
+- 现有 S4-S8 整链 mock 测试仍要过（调用次数变化就更新断言）。
 
 ## 验收标准
-- `cd apps/web` 无关；后端 `make check` 全绿，新增确定性单测 4 篇真实 Word 比例全过。
-- 模块为纯函数、无网络、无 LLM。规则泛化（无具体人名/篇名硬编码）。
+- `make check` 全绿。S4 过短场景能重试→兜底；正常场景不受影响。
+- 兜底后 chunk_results 仍合 schema，含 pipeline_fallback review_flag。
 
 ## 完成后
-- `OUTBOX_CODEX.md`：4 个模块接口、关键词类别表、4 篇真实 Word 的实际四档比例数字、泛化做法、与源工具差异、make check 结果、遗留。
-- `LOG.md` 追加：`[时间] CODEX: P1 确定性scaffold模块 完成`。
+- `OUTBOX_CODEX.md`：S4 改造点、比例门/重试/兜底逻辑、测试用例、调用次数变化、make check 结果、遗留。
+- `LOG.md` 追加：`[时间] CODEX: P2 S4比例门+兜底 完成`。

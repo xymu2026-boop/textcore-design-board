@@ -1,68 +1,61 @@
-# OUTBOX · Codex · P1 确定性 scaffold 模块
+# OUTBOX · Codex · P2 S4 比例门 + 重试 + 兜底
 
 ## 改动范围
 
-- 新增 `textcore/pipeline/deterministic/`：
-  - `__init__.py`
-  - `transcript_cleaner.py`
-  - `sentence_ranker.py`
-  - `version_scaffold.py`
-  - `quality_gates.py`
-- 新增 `tests/unit/test_deterministic_scaffold.py`。
-- 未接入 S4/S7/runner；未改 schema、前端、API、现有 S0-S10 stage 文件。
+- 修改 `textcore/pipeline/stages/s4_clean.py`。
+- 修改 `tests/unit/test_pipeline_s4_s8.py`。
+- 未改 schema、前端、API、S5-S10 或其它 stage。
 - 未提交 git。
 
-## 模块接口
+## S4 改造点
 
-- `clean_transcript_text(text, *, preserve_spans=()) -> {"text", "review_flags", "applied_repairs"}`
-  - mask `preserve_spans` 后再做清理，最后原样还原。
-  - 去时间戳/说话人前缀、口头禅、短课堂管理语、重复标点。
-  - 不做篇目专属错字替换；疑似术语/ASR 噪声只进 `review_flags`。
-- `sentence_split(text) -> list[str]`
-- `score_sentence(sentence, position, *, keyword_sets=DEFAULT_KEYWORD_SETS) -> int`
-- `important_sentences(text_or_paragraphs, limit, *, keyword_sets=DEFAULT_KEYWORD_SETS) -> list[str]`
-  - 另提供内部复用的 `rank_sentences` / `select_sentences_to_target`。
-- `build_chunk_scaffolds(*, chunk_id, title, original_text, cleaned_text=None, course_types=None, preserve_spans=()) -> dict`
-  - 返回 `faithful/concise/study/outline` 四档，每档含 `body_md/char_count/compression`。
-  - chunk 标题由当前块高分句截取，后续可由 S6/LLM 改写。
-- `check_version_ratio(*, version_key, actual_chars, source_chars, preferred=None, hard=None) -> dict`
-  - preferred 内 `accept`，hard 内 `warning/retry`，hard 外 `risk/fallback`。
+- 每个 chunk 先用 `paragraph_text_for_chunk(chunk, paragraphs)` 取原文，并用 deterministic `text_char_count` 计算 `original_chars`。
+- LLM 正常返回 `chunkResult` 后，继续做既有 schema 校验和 chunk_id 校验。
+- 新增 faithful 比例门：
+  - 调 `check_version_ratio(version_key="faithful", preferred=(0.85, 0.93), hard=(0.70, 0.95))`。
+  - 本次门禁只处理过度摘要风险：`ratio >= 0.70` 接受。
+  - `ratio < 0.70` 追加提示重试一次：
+    `你上次输出过度摘要（只剩 {ratio:.0%}）。保真清洗不是摘要，请逐句保留老师讲解，保留原文 70%-90%。`
+- 重试仍低于 70% 时，调用 P1 deterministic `build_chunk_scaffolds(...)`，传入 `chunk_id/original_text/preserve_spans`，取 `faithful.body_md` 覆盖 `cleaned_text`。
+- 兜底时向该 chunk 的 `review_flags` 追加 schema-valid 标记：
+  - `flag_id`: `pipeline_fallback_{chunk_id}`
+  - `text`: `保真清洗兜底`
+  - `reason`: `S4 LLM 输出低于保真比例(<70%)，已回退确定性保真清洗`
+  - `category`: `other`
+  - `severity`: `medium`
+  - `status`: `open`
 
-## 关键词类别表
+## 调用次数
 
-- `discourse_markers`：第一/第二/第三/首先/其次/最后/所以/因此/总之/注意/重点/核心/关键/说明/意味着/总结。
-- `method`：方法/步骤/技巧/规律/原则/思路。
-- `reading_question`：题型/答题/概括/赏析/分析/作用/表达效果/中心/主旨/引用/比喻/修辞。
-- `composition`：作文/立意/选材/结构/开头/结尾/语言/详略/描写/议论。
-- `classical_poetry`：文言文/古诗/词/句读/翻译/字词/通假/活用/意象/典故。
+- 正常 faithful 比例达标：S4 每 chunk 仍 1 次 model_call。
+- 首次低于 70%：S4 对该 chunk 记录 2 次 model_call。
+- 兜底不额外记录 model_call，因为兜底是本地 deterministic scaffold。
+- 现有 S4-S8 mock 整链仍为 5 次 provider 调用：S4×1 + S6×1 + S7 concise×1 + S8×2。
 
-## 四篇真实 Word 比例
+## 测试
 
-| 文件 | 原文字数 | chunks | faithful | concise | study | outline |
-|---|---:|---:|---:|---:|---:|---:|
-| 五上-人文综合涵养-寒假-第二讲-虚实-晚秋初冬.docx | 28864 | 10 | 27382 / 94.87% | 9106 / 31.55% | 3008 / 10.42% | 1443 / 5.00% |
-| 五上-人文综合涵养-寒假-第六讲-文言文阅读训练1.docx | 28213 | 11 | 25899 / 91.80% | 9063 / 32.12% | 3041 / 10.78% | 1190 / 4.22% |
-| 五上-人文综合涵养-寒假-第三讲-隐显-偷钱+第四讲-文言文-醉叟传1.docx | 32003 | 12 | 29633 / 92.59% | 10056 / 31.42% | 3165 / 9.89% | 1303 / 4.07% |
-| 五上-人文综合涵养-寒假-第七讲-阅读理解+作文点评2.docx | 31715 | 12 | 29866 / 94.17% | 10427 / 32.88% | 3489 / 11.00% | 1604 / 5.06% |
-
-## 泛化做法与源工具差异
-
-- 没有移植 `chunk_title()` 的篇目规则；标题来自通用打分句的前 N 字。
-- 没有移植具体人名/篇名关键词；新词表只按语文课堂类别组织。
-- 没有移植 `罪首→醉叟`、`古兽行销→骨瘦形销` 等硬纠错；疑似错字/噪声只标记候选。
-- 输出 Markdown 版本对象，不渲染 HTML/JS，不写前端 demo 文件。
-- 版本比例由代码按 chunk 抽句目标控制，整篇单测覆盖 4 篇真实 Word。
-- `rg` 检查：`textcore/pipeline/deterministic/` 未出现 demo 人名/篇名/硬纠错词。
+- 新增 `test_s4_retries_once_when_cleaned_text_is_too_short`：
+  - 第一次 mock 返回过短 `cleaned_text`。
+  - 断言触发第二次 S4 调用，且 retry prompt 包含“过度摘要”。
+  - 第二次返回正常长度后不兜底。
+- 新增 `test_s4_falls_back_to_deterministic_faithful_scaffold_after_short_retry`：
+  - 两次 mock 都过短。
+  - 断言 fallback 后 `cleaned_text` 长度 >= 原文 70%。
+  - 断言保留 span `床前明月光，疑是地上霜。` 仍存在。
+  - 断言出现 `pipeline_fallback_` review_flag。
+- 新增 `test_s4_accepts_normal_length_cleaned_text_without_retry_or_fallback`：
+  - mock 返回正常长度。
+  - 断言只调用 1 次且无兜底 flag。
+- 更新原 S4-S8 mock 的 S4 `cleaned_text`，避免正常整链被误判为摘要。
 
 ## 验证
 
-- `.venv/bin/python -m pytest tests/unit/test_deterministic_scaffold.py -q`：6 passed。
+- `.venv/bin/python -m pytest tests/unit/test_pipeline_s4_s8.py -q`：4 passed。
 - `make check`：通过。
   - 前端 typecheck/lint 通过。
   - `scripts/check_api.py` 通过。
-  - 全量 pytest：30 passed，1 个既有 StarletteDeprecationWarning。
+  - 全量 pytest：33 passed，1 个既有 StarletteDeprecationWarning。
 
 ## 遗留
 
-- `course_types` 参数已保留在 `build_chunk_scaffolds` 接口中，本步未按课型动态调权，后续 S4/S7 接入时可扩展。
-- `review_flags` 当前只做低风险候选标记，尚未接入 S5 古文参考服务核对。
+- S4 目前只对低于 70% 的过度摘要做重试/兜底；高于 hard upper 0.95 的偏长输出按任务要求仍接受。

@@ -11,8 +11,11 @@ from textcore.classics.build_db import build_db
 from textcore.classics.service import ClassicsService
 from textcore.contracts.course_state import VERSION_KEYS, validate
 from textcore.llm import LLMClient, MockProvider
+from textcore.pipeline.deterministic.version_scaffold import text_char_count
 from textcore.pipeline.events import StatusEventBroker
+from textcore.pipeline.llm_stage import paragraph_text_for_chunk
 from textcore.pipeline.runner import run_fake_pipeline
+from textcore.pipeline.stages import s4_clean
 from textcore.storage import CourseRepository
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -62,12 +65,88 @@ def test_pipeline_s4_s8_with_mock_provider_and_classics_service(tmp_path: Path) 
     assert len(provider.calls) == 5  # S4×1 + S6×1 + S7concise(逐块)×1 + S8×2
 
 
+def test_s4_retries_once_when_cleaned_text_is_too_short() -> None:
+    chunks, paragraphs = _s4_fixture()
+    provider = MockProvider(
+        _sequenced_responses(
+            [
+                _chunk_result("摘要。"),
+                _chunk_result(_normal_s4_cleaned_text()),
+            ]
+        )
+    )
+    results, calls = s4_clean.run(
+        chunks=chunks,
+        paragraphs=paragraphs,
+        llm_client=LLMClient(provider),
+    )
+
+    assert len(calls) == 2
+    assert len(provider.calls) == 2
+    assert "过度摘要" in provider.calls[1][1]
+    assert results[0]["cleaned_text"] == _normal_s4_cleaned_text()
+    assert not any(
+        flag.get("flag_id", "").startswith("pipeline_fallback_")
+        for flag in results[0].get("review_flags", [])
+    )
+
+
+def test_s4_falls_back_to_deterministic_faithful_scaffold_after_short_retry() -> None:
+    chunks, paragraphs = _s4_fixture()
+    provider = MockProvider(
+        _sequenced_responses([_chunk_result("摘要。"), _chunk_result("太短。")])
+    )
+
+    results, calls = s4_clean.run(
+        chunks=chunks,
+        paragraphs=paragraphs,
+        llm_client=LLMClient(provider),
+    )
+
+    result = results[0]
+    original_chars = text_char_count(paragraph_text_for_chunk(chunks[0], paragraphs))
+    cleaned_chars = text_char_count(result["cleaned_text"])
+    fallback_flags = [
+        flag
+        for flag in result["review_flags"]
+        if flag.get("flag_id", "").startswith("pipeline_fallback_")
+    ]
+
+    assert len(calls) == 2
+    assert len(provider.calls) == 2
+    assert cleaned_chars / original_chars >= 0.70
+    assert "床前明月光，疑是地上霜。" in result["cleaned_text"]
+    assert fallback_flags
+    assert fallback_flags[0]["category"] == "other"
+    assert fallback_flags[0]["text"] == "保真清洗兜底"
+    assert "已回退确定性保真清洗" in fallback_flags[0]["reason"]
+
+
+def test_s4_accepts_normal_length_cleaned_text_without_retry_or_fallback() -> None:
+    chunks, paragraphs = _s4_fixture()
+    provider = MockProvider(_sequenced_responses([_chunk_result(_normal_s4_cleaned_text())]))
+
+    results, calls = s4_clean.run(
+        chunks=chunks,
+        paragraphs=paragraphs,
+        llm_client=LLMClient(provider),
+    )
+
+    assert len(calls) == 1
+    assert len(provider.calls) == 1
+    assert results[0]["cleaned_text"] == _normal_s4_cleaned_text()
+    assert results[0]["review_flags"] == []
+
+
 def _mock_response(system: str, user: str) -> str:
     if "S4 分块保真清洗" in system:
         return _json(
             {
                 "chunk_id": "c001",
-                "cleaned_text": "老师讲《静夜思》，围绕月光和思乡理解诗意。",
+                "cleaned_text": (
+                    "今天讲李白的《静夜思》，先保留床前明月光、疑是地上霜这两句，"
+                    "再围绕月光意象引出思乡情感，提醒学生结合意象理解诗意。"
+                ),
                 "key_points": ["月光意象引出思乡", "诗歌学习要结合意象和情感"],
                 "student_answer_kept": [{"answer": "像霜。", "reason": "老师据此讲比喻"}],
                 "review_flags": [],
@@ -219,3 +298,64 @@ def _docx_bytes() -> bytes:
 
 def _json(payload: dict[str, object]) -> str:
     return json.dumps(payload, ensure_ascii=False)
+
+
+def _s4_fixture() -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    paragraphs: list[dict[str, object]] = [
+        {
+            "pid": "p0001",
+            "text": (
+                "今天讲李白的静夜思。床前明月光，疑是地上霜。老师先让大家看月光像霜，"
+                "再追问诗人为什么举头望明月、低头思故乡。这里不是背诵就结束，而是要把月光、"
+                "动作和思乡情绪连起来理解。最后老师提醒，写阅读题时要说清意象如何承载情感。"
+            ),
+            "source_order": 1,
+        }
+    ]
+    chunks: list[dict[str, object]] = [
+        {
+            "chunk_id": "c001",
+            "paragraph_range": ["p0001", "p0001"],
+            "primary_type": "poetry",
+            "context_before": "",
+            "must_preserve_spans": [
+                {"text": "床前明月光，疑是地上霜。", "reason": "poetry"}
+            ],
+        }
+    ]
+    return chunks, paragraphs
+
+
+def _normal_s4_cleaned_text() -> str:
+    return (
+        "今天讲李白的静夜思。床前明月光，疑是地上霜。老师先让大家看月光像霜，"
+        "再追问诗人为什么举头望明月、低头思故乡。这里不是背诵就结束，而是要把月光、"
+        "动作和思乡情绪连起来理解。"
+    )
+
+
+def _chunk_result(cleaned_text: str) -> str:
+    return _json(
+        {
+            "chunk_id": "c001",
+            "cleaned_text": cleaned_text,
+            "key_points": ["月光意象引出思乡"],
+            "student_answer_kept": [],
+            "review_flags": [],
+            "entities": {"persons": ["李白"], "works": ["静夜思"], "concepts": ["思乡"]},
+            "classics_candidates": [],
+        }
+    )
+
+
+def _sequenced_responses(responses: list[str]):
+    remaining = list(responses)
+
+    def handler(system: str, user: str) -> str:
+        if "S4 分块保真清洗" not in system:
+            raise AssertionError(f"unexpected prompt: {system[:120]}\nuser={user[:120]}")
+        if not remaining:
+            raise AssertionError("no mock response left")
+        return remaining.pop(0)
+
+    return handler
