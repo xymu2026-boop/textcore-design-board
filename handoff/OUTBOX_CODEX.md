@@ -1,67 +1,55 @@
-# OUTBOX · Codex · A1 S4 保真确定性化 + 元数据
+# OUTBOX · Codex · A2 chunk 级并发
 
 ## 改动范围
 
 - 修改 `textcore/pipeline/stages/s4_clean.py`。
-- 新增 `prompts/stages/s4_extract.system.md`。
-- 更新 `tests/unit/test_pipeline_s4_s8.py` 与 `tests/integration/test_courses_api.py` 的 S4 mock。
-- 未改 schema、前端、S5-S10 或其它 stage。
+- 修改 `textcore/pipeline/stages/s7_versions.py`。
+- 修改 `textcore/llm/client.py`。
+- 更新 `tests/unit/test_pipeline_s4_s8.py`、`tests/unit/test_s7_versions.py`。
+- 未改 schema、前端、S0-S3/S5/S6/S8/S9。
 - 未提交 git。
 
-## S4 新数据流
+## 并发实现
 
-- 每个 chunk 先用 `paragraph_text_for_chunk(chunk, paragraphs)` 取原文。
-- 调用 `clean_transcript_text(original_text, preserve_spans=chunk.must_preserve_spans)` 生成保真版 `cleaned_text`。
-- S4 LLM 调用改为只在已清洗文本 `current_chunk_cleaned` 上抽取小体量元数据：
-  - `key_points`
-  - `student_answer_kept`
-  - `entities.persons/works/concepts`
-  - `classics_candidates`
-  - `review_flags`
-- 最终 `chunkResult` 由 S4 代码组装：
-  - `chunk_id` 来自 chunk。
-  - `cleaned_text` 来自 deterministic transcript cleaner。
-  - 元数据来自 LLM。
-  - `review_flags` 合并 deterministic 候选与 LLM 输出。
+- S4 新增模块常量 `CONCURRENCY = 6`。
+  - deterministic `cleaned_text` 仍先顺序生成，保证空清洗文本继续直接报错。
+  - 每块 metadata LLM 调用通过 `ThreadPoolExecutor(max_workers=CONCURRENCY)` 提交。
+  - future 完成后按原 chunk index 写回预分配结果数组，再按数组顺序返回。
+- S7 新增模块常量 `CONCURRENCY = 6`。
+  - faithful/study/outline 仍走确定性拼装。
+  - concise 的逐块 LLM 润色通过线程池并发执行。
+  - 空 `cleaned_text` chunk 保持旧行为：不发 concise LLM 调用。
+  - S7 concise payload 额外带 `chunk_id`，便于定位和测试，不改输出 schema。
 
-## LLM 与提示词
+## 失败与顺序保证
 
-- 新增 `prompts/stages/s4_extract.system.md`，明确“只抽元数据，不输出清洗文本/正文”。
-- `classics_candidates.raw_span` 要求只从输入文本摘取，禁止凭记忆补全。
-- `<PRESERVE>` 内容按原样识别，不改写、不纠错。
-- S4 仍记录 stage `"S4"`，但本次元数据调用显式使用 `deepseek-v4-flash`。
-- S4 内部新增元数据专用 JSON schema，避免要求 LLM 返回 `cleaned_text`，不修改冻结的 course_state schema。
+- S4 单块 metadata LLM 异常不会中断整篇：
+  - 该 chunk 保留 deterministic `cleaned_text`。
+  - metadata 字段降级为空数组/空实体。
+  - 仍记录一条 S4 zero-token `model_call`，模型为 `deepseek-v4-flash`。
+- S7 单块 concise LLM 异常不会中断整篇：
+  - 该 chunk 回退 deterministic `coverage_scaffold`。
+  - 仍记录一条 S7 zero-token `model_call`，模型走 `llm_client.model_for("S7")`。
+- S4/S7 都用 index 收集结果，不依赖 future 完成顺序；返回内容按原 chunk 顺序组装。
 
-## 删除的旧逻辑
+## 线程安全处理
 
-- 删除 LLM 生成完整 `chunkResult.cleaned_text` 的流程。
-- 删除保真比例门 `FAITHFUL_*_RATIO` 检查。
-- 删除“过度摘要”重试。
-- 删除 LLM 低于 70% 后回退 `build_chunk_scaffolds(...)` 的兜底逻辑。
-- 保留 sanity gate：确定性 `cleaned_text` 为空时直接报错。
-
-## Review Flags
-
-- deterministic cleaner 返回的 `review_flags` 会并入 LLM 的 `review_flags`。
-- S4 合并时补 `chunk_id`/`flag_id` 默认值，并把 deterministic 的非 schema 类别归一到合法 `transcription_error`，确保 `chunkResult` 仍能通过 schema 校验。
-- 合并后按文本、建议、原因、类别去重。
+- `LLMClient.provider` lazy 初始化增加窄锁，避免默认 provider 并发初始化竞态。
+- `MockProvider.calls` append 增加锁保护；测试不依赖调用顺序。
+- DeepSeekProvider 每次 `chat` 仍是独立 `httpx.post`，未引入共享请求状态。
 
 ## 测试
 
-- `tests/unit/test_pipeline_s4_s8.py`
-  - S4 mock 只返回元数据，不再返回 `cleaned_text`。
-  - 断言 `cleaned_text` 等于 `clean_transcript_text(...)["text"]`。
-  - 断言 cleaned/source 字数比在 70%-95%。
-  - 断言单 chunk 只有 1 次 S4 LLM 调用，且模型为 `deepseek-v4-flash`。
-  - 覆盖 deterministic + LLM `review_flags` 合并。
-  - S4-S8 整链 mock 更新为 `S4 元数据抽取`，S4 调用次数等于 chunk 数。
-- `tests/integration/test_courses_api.py`
-  - API 集成测试的 S4 mock 同步为元数据形态，无 `cleaned_text` 字段。
+- 新增 S4 多 chunk 延迟 mock：并发完成顺序被打乱时，结果仍按 chunk 顺序返回。
+- 新增 S4 单 chunk 异常 mock：失败 chunk metadata 降级，整篇不崩。
+- 新增 S7 多 chunk 延迟 mock：concise 拼装顺序保持 chunk 原顺序。
+- 新增 S7 单 chunk 异常 mock：失败 chunk 回退 scaffold，整篇不崩。
+- 现有 S4-S8 mock 整链仍按 prompt 内容计数 S4/S7 调用。
 
 ## 验证
 
-- `.venv/bin/python -m pytest tests/unit/test_pipeline_s4_s8.py -q`：3 passed。
+- `.venv/bin/python -m pytest tests/unit/test_pipeline_s4_s8.py tests/unit/test_s7_versions.py tests/unit/test_llm_client.py`：13 passed。
 - `make check`：通过。
   - 前端 typecheck/lint 通过。
   - `scripts/check_api.py` 通过。
-  - 全量 pytest：38 passed，1 个既有 StarletteDeprecationWarning。
+  - 全量 pytest：42 passed，1 个既有 StarletteDeprecationWarning。

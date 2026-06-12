@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from typing import Any
 
 from textcore.contracts.course_state import validate_subschema
-from textcore.llm import LLMClient
+from textcore.llm import LLMClient, LLMResult
 from textcore.pipeline.deterministic.transcript_cleaner import clean_transcript_text
 from textcore.pipeline.llm_stage import (
     def_schema,
@@ -17,6 +18,7 @@ from textcore.pipeline.llm_stage import (
 )
 from textcore.pipeline.prompts import load_stage_prompt
 
+CONCURRENCY = 6
 S4_METADATA_MODEL = "deepseek-v4-flash"
 METADATA_FIELDS = (
     "key_points",
@@ -51,8 +53,7 @@ def run(
         ),
     )
     schema = _metadata_schema()
-    results: list[dict[str, Any]] = []
-    calls: list[dict[str, Any]] = []
+    prepared_chunks: list[dict[str, Any]] = []
 
     for chunk in chunks:
         original_text = paragraph_text_for_chunk(chunk, paragraphs)
@@ -65,22 +66,76 @@ def run(
             raise ValueError(f"S4 deterministic cleaned_text is empty for {chunk['chunk_id']}")
 
         user = _build_user(chunk, cleaned_text)
+        prepared_chunks.append(
+            {
+                "chunk": chunk,
+                "cleaned_text": cleaned_text,
+                "deterministic_review_flags": deterministic.get("review_flags", []),
+                "user": user,
+            }
+        )
+
+    results: list[dict[str, Any] | None] = [None] * len(prepared_chunks)
+    calls: list[dict[str, Any] | None] = [None] * len(prepared_chunks)
+    with ThreadPoolExecutor(max_workers=CONCURRENCY) as executor:
+        futures = {
+            executor.submit(
+                _complete_metadata_for_chunk,
+                llm_client=llm_client,
+                system=system,
+                user=item["user"],
+                schema=schema,
+            ): index
+            for index, item in enumerate(prepared_chunks)
+        }
+        for future in as_completed(futures):
+            index = futures[future]
+            item = prepared_chunks[index]
+            metadata, call = future.result()
+            calls[index] = call
+            results[index] = _assemble_chunk_result(
+                chunk=item["chunk"],
+                cleaned_text=item["cleaned_text"],
+                metadata=metadata,
+                deterministic_review_flags=item["deterministic_review_flags"],
+            )
+    return _compact_results(results), _compact_results(calls)
+
+
+def _complete_metadata_for_chunk(
+    *,
+    llm_client: LLMClient,
+    system: str,
+    user: str,
+    schema: dict[str, Any],
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    try:
         metadata, result = _complete_metadata(
             llm_client=llm_client,
             system=system,
             user=user,
             schema=schema,
         )
-        calls.append(model_call("S4", result))
-        results.append(
-            _assemble_chunk_result(
-                chunk=chunk,
-                cleaned_text=cleaned_text,
-                metadata=metadata,
-                deterministic_review_flags=deterministic.get("review_flags", []),
-            )
+        return metadata, model_call("S4", result)
+    except Exception:
+        return _empty_metadata(), model_call(
+            "S4",
+            LLMResult(text="", model=S4_METADATA_MODEL),
         )
-    return results, calls
+
+
+def _empty_metadata() -> dict[str, Any]:
+    return {
+        "key_points": [],
+        "student_answer_kept": [],
+        "entities": {"persons": [], "works": [], "concepts": []},
+        "classics_candidates": [],
+        "review_flags": [],
+    }
+
+
+def _compact_results(values: list[Any | None]) -> list[Any]:
+    return [value for value in values if value is not None]
 
 
 def _metadata_schema() -> dict[str, Any]:

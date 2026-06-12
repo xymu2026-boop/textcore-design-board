@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from typing import Any
 
 from textcore.contracts.course_state import VERSION_KEYS
@@ -61,6 +62,52 @@ def test_s7_study_and_outline_use_deterministic_scaffolds_with_target_ratios() -
     for version in versions.values():
         assert version["char_count"] == text_char_count(version["body_md"])
         assert version["compression"] <= 1
+
+
+def test_s7_parallel_concise_preserves_chunk_order() -> None:
+    chunks = [
+        _chunk_result(f"c{index:03d}", _lesson_text(30, offset=index * 100))
+        for index in range(1, 6)
+    ]
+
+    def handler(_system: str, user: str) -> str:
+        payload = json.loads(user)
+        chunk_id = str(payload["chunk_id"])
+        time.sleep((6 - int(chunk_id.removeprefix("c"))) * 0.01)
+        body = f"{payload['coverage_scaffold']}\n\nLLM顺序标记{chunk_id}。"
+        return _json({"body_md": body})
+
+    versions, calls = _run_s7(chunks, MockProvider(handler))
+    body = versions["concise"]["body_md"]
+
+    expected_ids = [f"c{index:03d}" for index in range(1, 6)]
+    positions = [body.index(f"LLM顺序标记{chunk_id}") for chunk_id in expected_ids]
+    assert positions == sorted(positions)
+    assert len(calls) == len(expected_ids)
+
+
+def test_s7_parallel_concise_failure_falls_back_per_chunk() -> None:
+    chunks = [
+        _chunk_result("c001", _lesson_text(30, offset=100)),
+        _chunk_result("c002", _lesson_text(30, offset=200)),
+    ]
+    scaffolds = s7_versions.build_scaffolds(chunks, {})
+
+    def handler(_system: str, user: str) -> str:
+        payload = json.loads(user)
+        chunk_id = str(payload["chunk_id"])
+        if chunk_id == "c002":
+            raise RuntimeError("concise failed")
+        return _json({"body_md": f"{payload['coverage_scaffold']}\n\nLLM正常{chunk_id}。"})
+
+    versions, calls = _run_s7(chunks, MockProvider(handler))
+    body = versions["concise"]["body_md"]
+
+    assert "LLM正常c001" in body
+    assert scaffolds[1]["concise"]["body_md"] in body
+    assert body.index("LLM正常c001") < body.index(scaffolds[1]["concise"]["body_md"])
+    assert len(calls) == 2
+    assert all(call["stage"] == "S7" for call in calls)
 
 
 def _run_s7(

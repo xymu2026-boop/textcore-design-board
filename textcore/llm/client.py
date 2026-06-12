@@ -11,6 +11,7 @@ import json
 import os
 from collections.abc import Callable
 from dataclasses import dataclass
+from threading import Lock
 from typing import Any, Protocol
 
 import jsonschema
@@ -81,9 +82,11 @@ class MockProvider:
     def __init__(self, handler: Callable[[str, str], str]):
         self.handler = handler
         self.calls: list[tuple[str, str]] = []
+        self._calls_lock = Lock()
 
     def chat(self, system: str, user: str, *, model: str, json_mode: bool) -> LLMResult:
-        self.calls.append((system, user))
+        with self._calls_lock:
+            self.calls.append((system, user))
         return LLMResult(text=self.handler(system, user), model=model)
 
 
@@ -102,11 +105,14 @@ DEFAULT_MODEL = "deepseek-v4-pro"
 class LLMClient:
     def __init__(self, provider: Provider | None = None):
         self._provider = provider
+        self._provider_lock = Lock()
 
     @property
     def provider(self) -> Provider:
         if self._provider is None:
-            self._provider = DeepSeekProvider()
+            with self._provider_lock:
+                if self._provider is None:
+                    self._provider = DeepSeekProvider()
         return self._provider
 
     def model_for(self, stage: str) -> str:

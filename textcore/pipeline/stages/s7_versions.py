@@ -11,10 +11,11 @@
 from __future__ import annotations
 
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any
 
 from textcore.contracts.course_state import validate_subschema
-from textcore.llm import LLMClient
+from textcore.llm import LLMClient, LLMResult
 from textcore.pipeline.deterministic.quality_gates import check_version_ratio
 from textcore.pipeline.deterministic.version_scaffold import (
     build_chunk_scaffolds,
@@ -23,6 +24,7 @@ from textcore.pipeline.deterministic.version_scaffold import (
 from textcore.pipeline.llm_stage import def_schema, dump_payload, model_call
 from textcore.pipeline.prompts import load_stage_prompt
 
+CONCURRENCY = 6
 CONCISE_MIN_RATIO = 0.25
 CONCISE_HARD_RATIO = (0.22, 0.45)
 
@@ -211,32 +213,37 @@ def run(
     concise_sys = load_stage_prompt(
         "s7_concise.system.md", rules=("classics_protection.md", "essay_feedback.md")
     )
-    concise_parts: list[str] = []
-    for cr, scaffold in zip(chunk_results, chunk_scaffolds, strict=False):
+    concise_parts: list[str | None] = [None] * len(chunk_scaffolds)
+    concise_calls: list[dict[str, Any] | None] = [None] * len(chunk_scaffolds)
+    jobs: list[tuple[int, dict[str, Any], dict[str, dict[str, Any]]]] = []
+    for index, (cr, scaffold) in enumerate(
+        zip(chunk_results, chunk_scaffolds, strict=False)
+    ):
         cleaned_text = str(cr.get("cleaned_text") or "")
         if not cleaned_text.strip():
             continue
-        coverage_scaffold = str(scaffold["concise"]["body_md"])
-        hard_min_chars = _hard_min_chars(cleaned_text)
-        user = dump_payload(
-            {
-                "chunk_clean": cleaned_text,
-                "coverage_scaffold": coverage_scaffold,
-                "hard_min_chars": hard_min_chars,
-                "key_points": cr.get("key_points", []),
-                "classics_refs": refs_by_chunk.get(cr.get("chunk_id", ""), []),
-            }
-        )
-        obj, result = llm_client.complete_json(concise_sys, user, schema, stage="S7")
-        calls.append(model_call("S7", result))
-        body = (obj.get("body_md") or "").strip()
-        if body:
-            concise_parts.append(
-                coverage_scaffold
-                if _should_fallback_concise(body, cleaned_text, hard_min_chars)
-                else body
-            )
-    concise_md = "\n\n".join(concise_parts)
+        jobs.append((index, cr, scaffold))
+
+    with ThreadPoolExecutor(max_workers=CONCURRENCY) as executor:
+        futures = {
+            executor.submit(
+                _complete_concise_for_chunk,
+                llm_client=llm_client,
+                concise_sys=concise_sys,
+                schema=schema,
+                cr=cr,
+                scaffold=scaffold,
+                refs_by_chunk=refs_by_chunk,
+            ): index
+            for index, cr, scaffold in jobs
+        }
+        for future in as_completed(futures):
+            index = futures[future]
+            body_md, call = future.result()
+            concise_parts[index] = body_md
+            concise_calls[index] = call
+    calls.extend(call for call in concise_calls if call is not None)
+    concise_md = "\n\n".join(part for part in concise_parts if part)
 
     faithful_md = assemble_faithful(chunk_results)
     study_md = assemble_study(chunk_scaffolds)
@@ -255,3 +262,38 @@ def run(
     for key in versions:
         validate_subschema(versions[key], "version")
     return versions, calls
+
+
+def _complete_concise_for_chunk(
+    *,
+    llm_client: LLMClient,
+    concise_sys: str,
+    schema: dict[str, Any],
+    cr: dict[str, Any],
+    scaffold: dict[str, dict[str, Any]],
+    refs_by_chunk: dict[str, list[dict[str, Any]]],
+) -> tuple[str, dict[str, Any]]:
+    cleaned_text = str(cr.get("cleaned_text") or "")
+    coverage_scaffold = str(scaffold["concise"]["body_md"])
+    hard_min_chars = _hard_min_chars(cleaned_text)
+    user = dump_payload(
+        {
+            "chunk_id": cr.get("chunk_id", ""),
+            "chunk_clean": cleaned_text,
+            "coverage_scaffold": coverage_scaffold,
+            "hard_min_chars": hard_min_chars,
+            "key_points": cr.get("key_points", []),
+            "classics_refs": refs_by_chunk.get(cr.get("chunk_id", ""), []),
+        }
+    )
+    try:
+        obj, result = llm_client.complete_json(concise_sys, user, schema, stage="S7")
+        body = (obj.get("body_md") or "").strip()
+        if not body or _should_fallback_concise(body, cleaned_text, hard_min_chars):
+            body = coverage_scaffold
+        return body, model_call("S7", result)
+    except Exception:
+        return coverage_scaffold, model_call(
+            "S7",
+            LLMResult(text="", model=llm_client.model_for("S7")),
+        )

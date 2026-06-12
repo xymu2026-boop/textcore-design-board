@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import io
 import json
+import re
+import time
 import zipfile
 from datetime import UTC, datetime
 from pathlib import Path
@@ -173,6 +175,57 @@ def test_s4_merges_deterministic_and_llm_review_flags() -> None:
     assert result["review_flags"][0]["category"] == "transcription_error"
     assert result["review_flags"][0]["chunk_id"] == "c001"
     assert result["review_flags"][2]["category"] == "uncertain_title"
+
+
+def test_s4_parallel_metadata_preserves_chunk_order() -> None:
+    chunks, paragraphs = _s4_multi_fixture(5)
+
+    def handler(_system: str, user: str) -> str:
+        chunk_id = _s4_chunk_id_from_user(user)
+        time.sleep((6 - int(chunk_id.removeprefix("c"))) * 0.01)
+        return _metadata_result(
+            key_points=[f"{chunk_id} 元数据"],
+            entities={"persons": [chunk_id], "works": [], "concepts": ["并发"]},
+        )
+
+    results, calls = s4_clean.run(
+        chunks=chunks,
+        paragraphs=paragraphs,
+        llm_client=LLMClient(MockProvider(handler)),
+    )
+
+    expected_ids = [f"c{index:03d}" for index in range(1, 6)]
+    assert [result["chunk_id"] for result in results] == expected_ids
+    assert [result["key_points"][0] for result in results] == [
+        f"{chunk_id} 元数据" for chunk_id in expected_ids
+    ]
+    assert [result["entities"]["persons"][0] for result in results] == expected_ids
+    assert len(calls) == len(expected_ids)
+    assert all(call["model"] == "deepseek-v4-flash" for call in calls)
+
+
+def test_s4_parallel_metadata_failure_falls_back_per_chunk() -> None:
+    chunks, paragraphs = _s4_multi_fixture(2)
+
+    def handler(_system: str, user: str) -> str:
+        chunk_id = _s4_chunk_id_from_user(user)
+        if chunk_id == "c002":
+            raise RuntimeError("metadata failed")
+        return _metadata_result(key_points=[f"{chunk_id} 元数据"])
+
+    results, calls = s4_clean.run(
+        chunks=chunks,
+        paragraphs=paragraphs,
+        llm_client=LLMClient(MockProvider(handler)),
+    )
+
+    assert [result["chunk_id"] for result in results] == ["c001", "c002"]
+    assert results[0]["key_points"] == ["c001 元数据"]
+    assert results[1]["cleaned_text"]
+    assert results[1]["key_points"] == []
+    assert results[1]["entities"] == {"persons": [], "works": [], "concepts": []}
+    assert len(calls) == 2
+    assert all(call["stage"] == "S4" for call in calls)
 
 
 def _mock_response(system: str, user: str) -> str:
@@ -365,6 +418,42 @@ def _s4_fixture(
         }
     ]
     return chunks, paragraphs
+
+
+def _s4_multi_fixture(
+    count: int,
+) -> tuple[list[dict[str, object]], list[dict[str, object]]]:
+    paragraphs: list[dict[str, object]] = []
+    chunks: list[dict[str, object]] = []
+    for index in range(1, count + 1):
+        pid = f"p{index:04d}"
+        chunk_id = f"c{index:03d}"
+        paragraphs.append(
+            {
+                "pid": pid,
+                "text": (
+                    f"嗯，这个第{index}段课堂内容讲阅读方法。老师说明要先概括事件，"
+                    "再分析人物动作和环境描写作用，最后回到中心主旨写表达效果。"
+                ),
+                "source_order": index,
+            }
+        )
+        chunks.append(
+            {
+                "chunk_id": chunk_id,
+                "paragraph_range": [pid, pid],
+                "primary_type": "modern_reading",
+                "context_before": "",
+                "must_preserve_spans": [],
+            }
+        )
+    return chunks, paragraphs
+
+
+def _s4_chunk_id_from_user(user: str) -> str:
+    match = re.search(r'"chunk_id":\s*"([^"]+)"', user)
+    assert match is not None
+    return match.group(1)
 
 
 def _metadata_result(
