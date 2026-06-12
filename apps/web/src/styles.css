@@ -1176,18 +1176,54 @@ a {
 
 /* Prototype fidelity layer: keep API behavior intact while matching docs/prototype. */
 .detail-page-container {
-  width: min(1080px, calc(100% - 320px));
-  margin-left: max(250px, calc((100vw - 1080px) / 2));
-  margin-right: auto;
+  width: min(1480px, calc(100% - 48px));
+  margin: 0 auto;
 }
 
 .detail-layout {
-  display: block;
+  display: grid;
+  grid-template-columns: minmax(188px, 220px) minmax(0, 1fr) minmax(236px, 292px);
+  gap: 22px;
+  align-items: start;
 }
 
 .detail-header .page-title {
   font-size: clamp(30px, 3.1vw, 34px);
   line-height: 1.18;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.detail-subtitle {
+  margin: 8px 0 0;
+  color: var(--color-text-muted);
+  font-size: 15px;
+}
+
+.header-version-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 12px;
+}
+
+.header-version-summary span {
+  display: inline-grid;
+  gap: 2px;
+  min-width: 118px;
+  padding: 8px 10px;
+  border: 1px solid rgba(222, 214, 200, 0.9);
+  border-radius: var(--radius-sm);
+  background: rgba(255, 253, 247, 0.74);
+  color: var(--color-text-subtle);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.header-version-summary strong {
+  color: var(--color-text);
+  font-size: 13px;
 }
 
 .source-summary {
@@ -1342,14 +1378,15 @@ a {
 }
 
 .reading-body {
-  padding: 48px min(8vw, 92px) 58px;
+  padding: 50px min(6vw, 70px) 64px;
 }
 
 .reading-content {
-  max-width: 940px;
+  max-width: 760px;
+  margin: 0 auto;
   color: var(--color-text);
   font-size: 18px;
-  line-height: 1.9;
+  line-height: 1.95;
 }
 
 .reading-content h2 {
@@ -1357,10 +1394,11 @@ a {
   font-family: "Noto Serif SC", "Songti SC", serif;
   font-size: 30px;
   line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .reading-content h2:not(:first-child) {
-  margin-top: 42px;
+  margin-top: 46px;
 }
 
 .reading-content h3 {
@@ -1369,7 +1407,7 @@ a {
 }
 
 .reading-content p {
-  margin: 0 0 20px;
+  margin: 0 0 21px;
 }
 
 .reading-content li {
@@ -1386,6 +1424,28 @@ a {
   text-align: center;
 }
 
+.long-section {
+  scroll-margin-top: 150px;
+  padding-bottom: 28px;
+  margin-bottom: 30px;
+  border-bottom: 1px solid rgba(228, 217, 201, 0.72);
+}
+
+.long-section:last-child {
+  margin-bottom: 0;
+  border-bottom: 0;
+}
+
+.chunk-meta {
+  margin-top: -10px;
+  color: var(--color-text-subtle);
+  font-size: 13px;
+}
+
+.outline-chunk {
+  scroll-margin-top: 150px;
+}
+
 .review-mark,
 .review-mark-block strong,
 .diff-mark {
@@ -1395,12 +1455,11 @@ a {
 }
 
 .floating-toc-sidebar {
-  position: fixed;
-  top: 154px;
-  left: max(24px, calc((100vw - 1080px) / 2 - 230px));
+  position: sticky;
+  top: 96px;
   z-index: 12;
-  width: 208px;
-  max-height: calc(100vh - 178px);
+  width: 100%;
+  max-height: calc(100vh - 118px);
   overflow: auto;
   padding-right: 4px;
   display: grid;
@@ -1439,6 +1498,9 @@ a {
   color: inherit;
   font-size: 13px;
   line-height: 1.25;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .floating-toc-sidebar small,
@@ -1457,7 +1519,12 @@ a {
 }
 
 .detail-side {
-  display: none;
+  display: block;
+  position: sticky;
+  top: 96px;
+  max-height: calc(100vh - 118px);
+  overflow: auto;
+  padding: 14px;
 }
 
 .side-tabs {
@@ -1816,8 +1883,9 @@ a {
     margin: 0 auto;
   }
 
-  .floating-toc-sidebar {
-    display: none;
+  .detail-layout {
+    grid-template-columns: minmax(170px, 200px) minmax(0, 1fr) minmax(218px, 250px);
+    gap: 16px;
   }
 }
 
@@ -1841,7 +1909,12 @@ a {
   }
 
   .floating-toc-sidebar {
+    display: grid;
     width: 100%;
+  }
+
+  .detail-side {
+    display: block;
   }
 
   .quick-scroll-rail {

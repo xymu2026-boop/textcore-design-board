@@ -187,6 +187,85 @@ function htmlFromBody(input: string | undefined): string {
   return blocks.join("");
 }
 
+function anchoredHtmlFromBody(input: string | undefined, navItems: ChunkNavItem[]): string {
+  const html = htmlFromBody(input);
+  if (!navItems.length || typeof DOMParser === "undefined") return html;
+
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const body = document.body;
+  const ids = navItems.map((item) => item.id);
+  const existingAnchors = ids
+    .map((id) => body.querySelector(`#${cssIdentifier(id)}`))
+    .filter((node): node is Element => Boolean(node));
+
+  if (existingAnchors.length > 0) {
+    existingAnchors.forEach((node) => {
+      if (node.tagName === "LI") node.classList.add("outline-chunk");
+      else node.classList.add("long-section");
+    });
+    return body.innerHTML;
+  }
+
+  const outlineItems = Array.from(body.querySelectorAll("li"));
+  if (outlineItems.length >= ids.length) {
+    ids.forEach((id, index) => {
+      outlineItems[index].id = id;
+      outlineItems[index].classList.add("outline-chunk");
+    });
+    return body.innerHTML;
+  }
+
+  const children = Array.from(body.children);
+  if (!children.length) return html;
+
+  const h2s = children.filter((child) => child.tagName === "H2");
+  if (h2s.length > 0) {
+    h2s.slice(0, ids.length).forEach((heading, index) => {
+      wrapUntilNext(body, heading, ids[index], (node) => node.tagName === "H2" && node !== heading);
+    });
+    return body.innerHTML;
+  }
+
+  const groupSize = Math.max(1, Math.ceil(children.length / ids.length));
+  ids.forEach((id) => {
+    const section = document.createElement("section");
+    section.id = id;
+    section.className = "long-section";
+    body.appendChild(section);
+    Array.from(body.children)
+      .filter((child) => child !== section)
+      .slice(0, groupSize)
+      .forEach((child) => section.appendChild(child));
+  });
+  return body.innerHTML;
+}
+
+function wrapUntilNext(
+  body: HTMLElement,
+  start: Element,
+  id: string,
+  isNextStart: (node: Element) => boolean,
+) {
+  const document = body.ownerDocument;
+  const section = document.createElement("section");
+  section.id = id;
+  section.className = "long-section";
+  body.insertBefore(section, start);
+
+  let node: ChildNode | null = start;
+  while (node) {
+    if (node instanceof Element && node !== start && isNextStart(node)) break;
+    const nextNode: ChildNode | null = node.nextSibling;
+    section.appendChild(node);
+    node = nextNode;
+  }
+}
+
+function cssIdentifier(value: string): string {
+  if (typeof CSS !== "undefined" && CSS.escape) return CSS.escape(value);
+  return value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+}
+
 function escapeHtml(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -209,6 +288,11 @@ function courseTypeLabel(course: CourseState): string {
   if (candidates?.length) return candidates.join(" + ");
   if (course.course_types?.mixed) return "混合课";
   return course.course_types?.dominant_type ?? "未识别课型";
+}
+
+function courseSubtitle(course: CourseState): string {
+  const meta = course.source.detected_meta;
+  return [meta?.student_group, meta?.date].filter(Boolean).join(" · ");
 }
 
 function versionForCourse(course: CourseState): VersionKey {
@@ -241,7 +325,8 @@ function courseRawCharCount(course: CourseState): number {
   return estimatedRawChars || paragraphChars;
 }
 
-function compressionText(versionChars: number | undefined, rawChars: number): string {
+function compressionText(versionChars: number | undefined, rawChars: number, compression?: number): string {
+  if (typeof compression === "number") return `${Math.round(compression * 100)}%`;
   if (!versionChars || !rawChars) return "等待统计";
   return `${Math.round((versionChars / rawChars) * 100)}%`;
 }
@@ -910,7 +995,7 @@ function VersionTabs({
             <strong>{tier.label}</strong>
             <span>
               {version?.char_count
-                ? `${formatCount(version.char_count, "字")} · ${compressionText(version.char_count, rawChars)}`
+                ? `${formatCount(version.char_count, "字")} · ${compressionText(version.char_count, rawChars, version.compression)}`
                 : tier.description}
             </span>
           </button>
@@ -931,18 +1016,34 @@ function ReviewMark({ flag }: { flag: ReviewFlag }) {
   );
 }
 
-function ChunkToc({ course, onJump }: { course: CourseState; onJump: (anchor?: string) => void }) {
-  const navItems = buildChunkNavItems(course);
-  const [activeId, setActiveId] = useState(navItems[0]?.id ?? "");
+function HeaderVersionSummary({ course, rawChars }: { course: CourseState; rawChars: number }) {
+  return (
+    <div aria-label="四档字数比例" className="header-version-summary">
+      {VERSION_TIERS.map((tier) => {
+        const item = course.versions?.[tier.key];
+        return (
+          <span key={tier.key}>
+            <strong>{tier.label}</strong>
+            {item?.char_count ? `${formatCount(item.char_count, "字")} · ${compressionText(item.char_count, rawChars, item.compression)}` : "等待统计"}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
 
-  useEffect(() => {
-    if (navItems.length > 0 && !navItems.some((item) => item.id === activeId)) {
-      setActiveId(navItems[0].id);
-    }
-  }, [activeId, navItems]);
+function ChunkToc({
+  course,
+  activeId,
+  onJump,
+}: {
+  course: CourseState;
+  activeId: string;
+  onJump: (anchor?: string) => void;
+}) {
+  const navItems = buildChunkNavItems(course);
 
   const jumpToChunk = (chunkId: string) => {
-    setActiveId(chunkId);
     onJump(chunkId);
   };
 
@@ -973,7 +1074,15 @@ function ChunkToc({ course, onJump }: { course: CourseState; onJump: (anchor?: s
   );
 }
 
-function ChunkMenuList({ course, onJump }: { course: CourseState; onJump: (anchor?: string) => void }) {
+function ChunkMenuList({
+  course,
+  activeId,
+  onJump,
+}: {
+  course: CourseState;
+  activeId: string;
+  onJump: (anchor?: string) => void;
+}) {
   const navItems = buildChunkNavItems(course);
 
   if (!navItems.length) {
@@ -983,7 +1092,13 @@ function ChunkMenuList({ course, onJump }: { course: CourseState; onJump: (ancho
   return (
     <div className="toc-list chunk-menu-items">
       {navItems.map((item) => (
-        <button className="toc-item" key={item.id} onClick={() => onJump(item.id)} title={`${item.label} ${item.title}`} type="button">
+        <button
+          className={`toc-item ${activeId === item.id ? "active" : ""}`}
+          key={item.id}
+          onClick={() => onJump(item.id)}
+          title={`${item.label} ${item.title}`}
+          type="button"
+        >
           <strong>{item.label}</strong>
           <span>{item.title}</span>
           <small>{item.meta}</small>
@@ -1356,6 +1471,7 @@ function CourseDetail({
   const [compare, setCompare] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [popover, setPopover] = useState<KeywordInsight | null>(null);
+  const [activeChunkId, setActiveChunkId] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -1390,6 +1506,7 @@ function CourseDetail({
 
   const jumpTo = (anchor?: string) => {
     if (!anchor) return;
+    setActiveChunkId(anchor);
     const element = document.getElementById(anchor);
     if (element) {
       element.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1403,6 +1520,42 @@ function CourseDetail({
       window.scrollTo({ top: panelTop + (maxScroll - panelTop) * (chunkIndex / denominator), behavior: "smooth" });
     }
   };
+
+  const chunkNavItems = useMemo(() => (course ? buildChunkNavItems(course) : []), [course]);
+  const bodyHtml = useMemo(
+    () => anchoredHtmlFromBody(course?.versions?.[version]?.body_md, chunkNavItems),
+    [course, chunkNavItems, version],
+  );
+
+  useEffect(() => {
+    const firstId = chunkNavItems[0]?.id ?? "";
+    if (firstId && !chunkNavItems.some((item) => item.id === activeChunkId)) {
+      setActiveChunkId(firstId);
+    }
+  }, [activeChunkId, chunkNavItems]);
+
+  useEffect(() => {
+    if (compare || !chunkNavItems.length) return undefined;
+    const elements = chunkNavItems
+      .map((item) => document.getElementById(item.id))
+      .filter((element): element is HTMLElement => Boolean(element));
+    if (!elements.length) return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const visible = entries
+          .filter((entry) => entry.isIntersecting)
+          .sort((a, b) => b.intersectionRatio - a.intersectionRatio)[0];
+        if (visible?.target.id) {
+          setActiveChunkId(visible.target.id);
+        }
+      },
+      { rootMargin: "-38% 0px -48% 0px", threshold: [0.12, 0.3, 0.6] },
+    );
+
+    elements.forEach((element) => observer.observe(element));
+    return () => observer.disconnect();
+  }, [bodyHtml, chunkNavItems, compare]);
 
   if (error) {
     return (
@@ -1419,7 +1572,6 @@ function CourseDetail({
     return <section className="empty-panel">正在加载课程详情...</section>;
   }
 
-  const bodyHtml = htmlFromBody(course.versions?.[version]?.body_md);
   const rawChars = courseRawCharCount(course);
   const rawText = (course.paragraphs ?? [])
     .slice(0, 24)
@@ -1436,6 +1588,8 @@ function CourseDetail({
   };
   const isProcessing = course.status === "created" || course.status === "processing";
   const isFailed = course.status === "failed";
+  const subtitle = courseSubtitle(course);
+  const currentChunkLabel = chunkLabel(activeChunkId || (chunkNavItems[0]?.id ?? "全文"));
 
   return (
     <section>
@@ -1453,9 +1607,10 @@ function CourseDetail({
       <div className="detail-header">
         <div>
           <p className="page-kicker">课程详情</p>
-          <h1 className="page-title">课程：{courseTitle(course)}｜讲师：{courseTeacher(course)}</h1>
+          <h1 className="page-title">课程：{courseTitle(course)} ｜ 讲师：{courseTeacher(course)}</h1>
+          {subtitle ? <p className="detail-subtitle">{subtitle}</p> : null}
           <div className="course-meta">
-            <span className="tag">{courseTypeLabel(course)}</span>
+            <span className="tag">课型：{courseTypeLabel(course)}</span>
             <span className="tag">原始文件：{course.source.file}</span>
             <span className="tag">
               {(course.paragraphs ?? []).length} 段 / 原文约 {formatCount(rawChars, "字")} / {(course.chunks ?? []).length} 个处理块
@@ -1463,6 +1618,7 @@ function CourseDetail({
             <span className={`tag status-${course.status}`}>{STATUS_LABELS[course.status]}</span>
             <span className="tag">待复核 {reviewFlags.length} 条</span>
           </div>
+          <HeaderVersionSummary course={course} rawChars={rawChars} />
         </div>
         <button
           className="button-primary"
@@ -1487,6 +1643,7 @@ function CourseDetail({
         />
       ) : (
       <div className="detail-layout">
+        <ChunkToc activeId={activeChunkId} course={course} onJump={jumpTo} />
         <article className="reading-panel">
           <section className="source-summary">
             <div className="overview-card">
@@ -1547,10 +1704,10 @@ function CourseDetail({
             <div className="control-actions">
               <details className="chapter-menu">
                 <summary>
-                  章节目录 <span className="current-chunk-label">{chunkLabel(course.chunks?.[0]?.chunk_id ?? "全文")}</span>
+                  章节目录 <span className="current-chunk-label">{currentChunkLabel}</span>
                 </summary>
                 <div className="chapter-menu-list">
-                  <ChunkMenuList course={course} onJump={jumpTo} />
+                  <ChunkMenuList activeId={activeChunkId} course={course} onJump={jumpTo} />
                 </div>
               </details>
             </div>
@@ -1573,7 +1730,6 @@ function CourseDetail({
             </div>
           )}
         </article>
-        <ChunkToc course={course} onJump={jumpTo} />
         <QuickScrollRail course={course} />
 
         <aside className="side-card detail-side">
