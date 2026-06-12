@@ -100,11 +100,9 @@ def _parse_sse(chunks: Iterator[str]) -> list[dict[str, object]]:
 
 
 def _mock_pipeline_response(system: str, _user: str) -> str:
-    if "S4 分块保真清洗" in system:
+    if "S4 元数据抽取" in system:
         return _json(
             {
-                "chunk_id": "c001",
-                "cleaned_text": "保真清洗后的课堂内容。",
                 "key_points": ["课堂主线"],
                 "student_answer_kept": [],
                 "review_flags": [

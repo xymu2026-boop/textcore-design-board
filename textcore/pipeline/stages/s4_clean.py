@@ -1,16 +1,13 @@
-"""S4 chunk-level faithful cleaning."""
+"""S4 chunk-level faithful cleaning and metadata extraction."""
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any
 
 from textcore.contracts.course_state import validate_subschema
 from textcore.llm import LLMClient
-from textcore.pipeline.deterministic.quality_gates import check_version_ratio
-from textcore.pipeline.deterministic.version_scaffold import (
-    build_chunk_scaffolds,
-    text_char_count,
-)
+from textcore.pipeline.deterministic.transcript_cleaner import clean_transcript_text
 from textcore.pipeline.llm_stage import (
     def_schema,
     dump_payload,
@@ -20,8 +17,24 @@ from textcore.pipeline.llm_stage import (
 )
 from textcore.pipeline.prompts import load_stage_prompt
 
-FAITHFUL_PREFERRED_RATIO = (0.85, 0.93)
-FAITHFUL_HARD_RATIO = (0.70, 0.95)
+S4_METADATA_MODEL = "deepseek-v4-flash"
+METADATA_FIELDS = (
+    "key_points",
+    "student_answer_kept",
+    "entities",
+    "classics_candidates",
+    "review_flags",
+)
+VALID_REVIEW_FLAG_CATEGORIES = {
+    "transcription_error",
+    "uncertain_person",
+    "uncertain_title",
+    "classical_typo",
+    "unclear_reading",
+    "other",
+}
+VALID_REVIEW_FLAG_SEVERITIES = {"low", "medium", "high"}
+VALID_REVIEW_FLAG_STATUSES = {"open", "resolved", "dismissed"}
 
 
 def run(
@@ -31,129 +44,193 @@ def run(
     llm_client: LLMClient,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     system = load_stage_prompt(
-        "s4_clean.system.md",
+        "s4_extract.system.md",
         rules=(
-            "colloquial_cleaning.md",
             "classics_protection.md",
             "essay_feedback.md",
         ),
     )
-    schema = def_schema("chunkResult")
+    schema = _metadata_schema()
     results: list[dict[str, Any]] = []
     calls: list[dict[str, Any]] = []
 
     for chunk in chunks:
         original_text = paragraph_text_for_chunk(chunk, paragraphs)
-        original_chars = text_char_count(original_text)
-        user = _build_user(chunk, paragraphs)
-        obj, result = _complete_chunk(
+        deterministic = clean_transcript_text(
+            original_text,
+            preserve_spans=chunk.get("must_preserve_spans", ()),
+        )
+        cleaned_text = str(deterministic.get("text") or "").strip()
+        if not cleaned_text:
+            raise ValueError(f"S4 deterministic cleaned_text is empty for {chunk['chunk_id']}")
+
+        user = _build_user(chunk, cleaned_text)
+        metadata, result = _complete_metadata(
             llm_client=llm_client,
             system=system,
             user=user,
             schema=schema,
-            chunk=chunk,
         )
         calls.append(model_call("S4", result))
-
-        gate = _faithful_ratio(obj.get("cleaned_text", ""), original_chars)
-        if _below_faithful_floor(gate):
-            retry_user = (
-                f"{user}\n\n"
-                f"你上次输出过度摘要（只剩 {gate['ratio']:.0%}）。"
-                "保真清洗不是摘要，请逐句保留老师讲解，保留原文 70%-90%。"
-            )
-            obj, result = _complete_chunk(
-                llm_client=llm_client,
-                system=system,
-                user=retry_user,
-                schema=schema,
+        results.append(
+            _assemble_chunk_result(
                 chunk=chunk,
+                cleaned_text=cleaned_text,
+                metadata=metadata,
+                deterministic_review_flags=deterministic.get("review_flags", []),
             )
-            calls.append(model_call("S4", result))
-            gate = _faithful_ratio(obj.get("cleaned_text", ""), original_chars)
-            if _below_faithful_floor(gate):
-                obj = _with_fallback_cleaned_text(
-                    obj,
-                    chunk=chunk,
-                    original_text=original_text,
-                )
-                validate_subschema(obj, "chunkResult")
-
-        results.append(obj)
+        )
     return results, calls
 
 
-def _build_user(chunk: dict[str, Any], paragraphs: list[dict[str, Any]]) -> str:
+def _metadata_schema() -> dict[str, Any]:
+    chunk_schema = def_schema("chunkResult")
+    properties = deepcopy(chunk_schema["properties"])
+    properties["entities"]["required"] = ["persons", "works", "concepts"]
+    return {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "object",
+        "additionalProperties": False,
+        "required": list(METADATA_FIELDS),
+        "properties": {field: properties[field] for field in METADATA_FIELDS},
+        "$defs": chunk_schema["$defs"],
+    }
+
+
+def _build_user(chunk: dict[str, Any], cleaned_text: str) -> str:
     payload = {
         "chunk_id": chunk["chunk_id"],
         "paragraph_range": chunk["paragraph_range"],
         "primary_type": chunk.get("primary_type"),
         "context_before": chunk.get("context_before", ""),
-        "current_chunk_original": paragraph_text_for_chunk(chunk, paragraphs),
+        "current_chunk_cleaned": cleaned_text,
         "must_preserve_spans": chunk.get("must_preserve_spans", []),
     }
     preserve = protected_spans(chunk.get("must_preserve_spans", []))
     return (
-        "Process this chunk. Return only the JSON object.\n\n"
+        "Extract compact metadata from this already-cleaned chunk. "
+        "Return only the JSON object and do not include cleaned_text.\n\n"
         f"{dump_payload(payload)}\n\n"
         f"Protected spans:\n{preserve}"
     )
 
 
-def _complete_chunk(
+def _complete_metadata(
     *,
     llm_client: LLMClient,
     system: str,
     user: str,
     schema: dict[str, Any],
-    chunk: dict[str, Any],
 ) -> tuple[dict[str, Any], Any]:
-    obj, result = llm_client.complete_json(system, user, schema, stage="S4")
-    validate_subschema(obj, "chunkResult")
-    if obj["chunk_id"] != chunk["chunk_id"]:
-        raise ValueError(f"S4 returned chunk_id {obj['chunk_id']} for {chunk['chunk_id']}")
-    return obj, result
-
-
-def _faithful_ratio(cleaned_text: str, original_chars: int) -> dict[str, Any]:
-    return check_version_ratio(
-        version_key="faithful",
-        actual_chars=text_char_count(cleaned_text),
-        source_chars=original_chars,
-        preferred=FAITHFUL_PREFERRED_RATIO,
-        hard=FAITHFUL_HARD_RATIO,
+    return llm_client.complete_json(
+        system,
+        user,
+        schema,
+        stage="S4",
+        model=S4_METADATA_MODEL,
     )
 
 
-def _below_faithful_floor(gate: dict[str, Any]) -> bool:
-    return float(gate.get("ratio", 0.0)) < FAITHFUL_HARD_RATIO[0]
-
-
-def _with_fallback_cleaned_text(
-    obj: dict[str, Any],
+def _assemble_chunk_result(
     *,
     chunk: dict[str, Any],
-    original_text: str,
+    cleaned_text: str,
+    metadata: dict[str, Any],
+    deterministic_review_flags: Any,
 ) -> dict[str, Any]:
-    scaffolds = build_chunk_scaffolds(
-        chunk_id=chunk["chunk_id"],
-        title=str(chunk.get("title") or ""),
-        original_text=original_text,
-        preserve_spans=chunk.get("must_preserve_spans", []),
+    chunk_id = chunk["chunk_id"]
+    result = {
+        "chunk_id": chunk_id,
+        "cleaned_text": cleaned_text,
+        "key_points": list(metadata.get("key_points") or []),
+        "student_answer_kept": list(metadata.get("student_answer_kept") or []),
+        "entities": _entities(metadata.get("entities")),
+        "classics_candidates": list(metadata.get("classics_candidates") or []),
+        "review_flags": _merge_review_flags(
+            deterministic_review_flags,
+            metadata.get("review_flags", []),
+            chunk_id=chunk_id,
+        ),
+    }
+    validate_subschema(result, "chunkResult")
+    return result
+
+
+def _entities(value: Any) -> dict[str, list[str]]:
+    if not isinstance(value, dict):
+        return {"persons": [], "works": [], "concepts": []}
+    return {
+        "persons": list(value.get("persons") or []),
+        "works": list(value.get("works") or []),
+        "concepts": list(value.get("concepts") or []),
+    }
+
+
+def _merge_review_flags(
+    deterministic_flags: Any,
+    llm_flags: Any,
+    *,
+    chunk_id: str,
+) -> list[dict[str, Any]]:
+    combined = _normalize_review_flags(
+        deterministic_flags,
+        chunk_id=chunk_id,
+        source="deterministic",
+    ) + _normalize_review_flags(
+        llm_flags,
+        chunk_id=chunk_id,
+        source="llm",
     )
-    fallback = dict(obj)
-    fallback["cleaned_text"] = scaffolds["faithful"]["body_md"]
-    review_flags = list(fallback.get("review_flags") or [])
-    review_flags.append(
-        {
-            "flag_id": f"pipeline_fallback_{chunk['chunk_id']}",
-            "chunk_id": chunk["chunk_id"],
-            "text": "保真清洗兜底",
-            "reason": "S4 LLM 输出低于保真比例(<70%)，已回退确定性保真清洗",
-            "category": "other",
-            "severity": "medium",
-            "status": "open",
-        }
-    )
-    fallback["review_flags"] = review_flags
-    return fallback
+    seen: set[tuple[Any, ...]] = set()
+    deduped: list[dict[str, Any]] = []
+    for flag in combined:
+        key = (
+            flag.get("chunk_id"),
+            flag.get("text"),
+            flag.get("suggestion"),
+            flag.get("reason"),
+            flag.get("category"),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(flag)
+    return deduped
+
+
+def _normalize_review_flags(
+    flags: Any,
+    *,
+    chunk_id: str,
+    source: str,
+) -> list[dict[str, Any]]:
+    if not isinstance(flags, list):
+        return []
+
+    normalized: list[dict[str, Any]] = []
+    for index, flag in enumerate(flags, start=1):
+        if not isinstance(flag, dict):
+            continue
+        text = str(flag.get("text") or "").strip()
+        reason = str(flag.get("reason") or "").strip()
+        if not text or not reason:
+            continue
+
+        out = {key: value for key, value in flag.items() if value not in ("", None)}
+        out["text"] = text
+        out["reason"] = reason
+        out.setdefault("flag_id", f"s4_{source}_{chunk_id}_{index:03d}")
+        out.setdefault("chunk_id", chunk_id)
+
+        if out.get("category") not in VALID_REVIEW_FLAG_CATEGORIES:
+            out["category"] = (
+                "transcription_error" if source == "deterministic" else "other"
+            )
+        if out.get("severity") not in VALID_REVIEW_FLAG_SEVERITIES:
+            out["severity"] = "low" if source == "deterministic" else "medium"
+        if out.get("status") not in VALID_REVIEW_FLAG_STATUSES:
+            out["status"] = "open"
+
+        validate_subschema(out, "reviewFlag")
+        normalized.append(out)
+    return normalized
