@@ -1008,8 +1008,16 @@ function ProgressPanel({ latestCourse, upload }: { latestCourse?: CourseListItem
 
   return (
     <section className="progress-panel">
-      <h2 className="section-heading">最近处理</h2>
+      <h2 className="section-heading">处理进度</h2>
       <p className="progress-title">{progressTitle}</p>
+      {upload.status !== "idle" ? (
+        <div className="progress-summary" aria-label="整体进度">
+          <span>{Math.round(upload.progress * 100)}%</span>
+          <div className="progress-track">
+            <i style={{ width: `${Math.round(upload.progress * 100)}%` }} />
+          </div>
+        </div>
+      ) : null}
       <div className="steps">
         {events.slice(-6).map((event) => (
           <div className={`step ${event.stage_status}`} key={`${event.stage}-${event.ts ?? event.message ?? ""}`}>
@@ -1161,13 +1169,21 @@ function WorkspacePage({
             title="无法连接后端服务"
           />
         ) : (
-          <CourseTable
-            compact
-            courses={courses.slice(0, 3)}
-            emptyMessage={listStatus === "loading" ? "正在从后端读取课程列表..." : "上传 Word 后，这里会显示最近处理的课稿。"}
-            emptyTitle={listStatus === "loading" ? "正在加载课稿" : "还没有课稿"}
-            onExport={onExport}
-          />
+          <div className="workspace-history">
+            <div className="section-row compact-row">
+              <h2 className="section-heading">最近处理</h2>
+              <button className="button-ghost" onClick={() => navigateTo({ name: "courses" })} type="button">
+                查看全部
+              </button>
+            </div>
+            <CourseTable
+              compact
+              courses={courses.slice(0, 3)}
+              emptyMessage={listStatus === "loading" ? "正在从后端读取课程列表..." : "上传 Word 后，这里会显示最近处理的课稿。"}
+              emptyTitle={listStatus === "loading" ? "正在加载课稿" : "还没有课稿"}
+              onExport={onExport}
+            />
+          </div>
         )}
       </div>
     </section>
@@ -2371,123 +2387,86 @@ function ResourceList({
   );
 }
 
-function AssetsPage({ courses }: { courses: CourseListItem[] }) {
-  const [assetTab, setAssetTab] = useState<"methods" | "works" | "words" | "materials">("works");
-  const sourceCourse = courses.find((course) => course.title.includes("醉叟")) ?? courses[0];
-  const workAssets = [
-    {
-      title: "《醉叟传》",
-      type: "文言传记",
-      author: "袁宏道",
-      quote: "醉叟者，不知何地人，亦不言其姓名，以其常醉，呼曰“醉叟”。",
-      summary: "作品通过不知来历、常醉、孤身、怪食等细节，让醉叟以神秘而传奇的方式登场。文心会把参考库原文、译文和老师讲解分层展示。",
-      course: sourceCourse?.title ?? "五上寒假第三/四讲 · 文言文《醉叟传》",
-      words: ["叟", "以", "姓字", "呼曰", "可"],
-      theme: "奇人登场、人物传记、悬念式开头",
-    },
-  ];
-  const methodAssets = [
-    {
-      title: "现代文阅读双线结构",
-      type: "阅读方法",
-      summary: "区分明线事件与暗线心理，把故事推进和主题表达分开整理。",
-      points: ["先找事件顺序", "再看人物心理变化", "最后归纳教育主题"],
-    },
-    {
-      title: "文言人物传记开头",
-      type: "文言方法",
-      summary: "关注姓名、来历、外貌、怪异行为等信息，判断作者怎样制造人物的传奇感。",
-      points: ["抓身份信息", "抓异常行为", "抓作者态度"],
-    },
-  ];
-  const wordAssets = [
-    {
-      title: "叟",
-      type: "文言字词",
-      summary: "年老的男子。用于人物称呼时常带有民间传说或人物小传的味道。",
-      points: ["醉叟", "老叟", "渔叟"],
-    },
-    {
-      title: "以",
-      type: "文言字词",
-      summary: "可作介词或连词，结合上下文判断为“用、凭借、因为、把”等。",
-      points: ["以其常醉", "以为", "可以"],
-    },
-  ];
-  const materialAssets = [
-    {
-      title: "犯错后的尊严与宽容",
-      type: "作文主题",
-      summary: "可用于写成长、家庭教育、理解与自省。重点不是犯错本身，而是犯错后如何被引导。",
-      points: ["尊严是改错动力", "爱让人愿意反思", "正向示范胜过羞辱"],
-    },
-    {
-      title: "奇人登场写法",
-      type: "写作技巧",
-      summary: "先不交代全部身份，而用动作、外貌和传闻制造悬念，让人物带着故事感出现。",
-      points: ["不急于说明", "用细节立人", "让读者产生追问"],
-    },
-  ];
+type AssetTab = "methods" | "words" | "materials";
 
-  const renderGeneralCard = (item: { title: string; type: string; summary: string; points: string[] }, prefix: string) => (
-    <article className="asset-card" key={`${prefix}-${item.title}`}>
-      <h3>{prefix}{item.title}</h3>
-      <span className="tag">{item.type}</span>
-      <p><strong>详解：</strong>{item.summary}</p>
-      <h4>关键重点</h4>
-      <ul>{item.points.map((point) => <li key={point}>{point}</li>)}</ul>
-    </article>
-  );
+const ASSET_TAB_COPY: Record<AssetTab, { label: string; emptyTitle: string; emptyMessage: string; courseHint: string }> = {
+  methods: {
+    label: "方法卡片库",
+    emptyTitle: "还没有聚合后的方法卡片",
+    emptyMessage: "阶段三 C1 后端聚合 API 完成后，这里会从所有课程汇总阅读方法、文言方法和常见题型卡片。",
+    courseHint: "从单课详情查看知识卡片",
+  },
+  words: {
+    label: "词汇生词本",
+    emptyTitle: "还没有跨课程生词本",
+    emptyMessage: "当前版本不在前端拼接词条。完成课程处理后，可以先进入单课详情查看旁征博引和相关知识卡片。",
+    courseHint: "从单课详情查看词句来源",
+  },
+  materials: {
+    label: "佳句素材册",
+    emptyTitle: "还没有聚合后的佳句素材",
+    emptyMessage: "阶段三会由后端汇总写作素材、主题表达和佳句出处；本页暂时只提供课程入口，不造假资产。",
+    courseHint: "从单课详情查看作文素材",
+  },
+};
+
+function AssetsPage({ courses }: { courses: CourseListItem[] }) {
+  const [assetTab, setAssetTab] = useState<AssetTab>("methods");
+  const currentCopy = ASSET_TAB_COPY[assetTab];
+  const entryCourses = courses.filter((course) => course.status === "completed" || course.status === "needs_human");
 
   return (
     <section className="asset-page">
-      <p className="page-kicker">知识沉淀</p>
-      <h1 className="page-title">知识资产库</h1>
-      <div className="asset-tabs">
-        <button className={assetTab === "methods" ? "active" : ""} onClick={() => setAssetTab("methods")} type="button">
-          知识点库
-        </button>
-        <button className={assetTab === "works" ? "active" : ""} onClick={() => setAssetTab("works")} type="button">
-          作品典藏
-        </button>
-        <button className={assetTab === "words" ? "active" : ""} onClick={() => setAssetTab("words")} type="button">
-          词汇生词本
-        </button>
-        <button className={assetTab === "materials" ? "active" : ""} onClick={() => setAssetTab("materials")} type="button">
-          写作素材库
+      <div className="page-title-row">
+        <div>
+          <p className="page-kicker">知识沉淀</p>
+          <h1 className="page-title">知识资产库</h1>
+          <p className="muted">先从已处理课程进入单课资源；跨课程聚合等待阶段三后端 API。</p>
+        </div>
+        <button className="button-primary" onClick={() => navigateTo({ name: "courses" })} type="button">
+          打开课稿库
         </button>
       </div>
-      <div className="asset-grid">
-        {assetTab === "works"
-          ? workAssets.map((item) => (
-              <article className="asset-card work-asset-card" key={item.title}>
-                <div className="work-card-head">
-                  <span className="tag">{item.type}</span>
-                  <span>{item.author}</span>
-                </div>
-                <h3>作品：{item.title}</h3>
-                <blockquote className="work-quote">{item.quote}</blockquote>
-                <p><strong>核心赏析：</strong>{item.summary}</p>
-                <div className="work-meta-list">
-                  <span>关联课堂：{item.course}</span>
-                  <span>已记字词：{item.words.join("、")}</span>
-                  <span>主题：{item.theme}</span>
-                </div>
-                {sourceCourse ? (
-                  <button
-                    className="tiny-button"
-                    onClick={() => navigateTo({ name: "detail", courseId: sourceCourse.course_id })}
-                    type="button"
-                  >
-                    查看作品详案
+      <div className="asset-tabs">
+        {(Object.keys(ASSET_TAB_COPY) as AssetTab[]).map((tab) => (
+          <button className={assetTab === tab ? "active" : ""} key={tab} onClick={() => setAssetTab(tab)} type="button">
+            {ASSET_TAB_COPY[tab].label}
+          </button>
+        ))}
+      </div>
+      <div className="asset-empty-layout">
+        <section className="empty-panel asset-empty-panel">
+          <span className="asset-empty-icon" aria-hidden="true">□</span>
+          <h2>{currentCopy.emptyTitle}</h2>
+          <p className="muted">{currentCopy.emptyMessage}</p>
+          <button className="button-secondary" onClick={() => navigateTo({ name: "courses" })} type="button">
+            从课程进入
+          </button>
+        </section>
+        <section className="asset-course-panel">
+          <div className="section-row compact-row">
+            <h2 className="section-heading">课程入口</h2>
+            <span className="tag">{entryCourses.length} 篇可查看</span>
+          </div>
+          {entryCourses.length > 0 ? (
+            <div className="asset-course-list">
+              {entryCourses.slice(0, 6).map((course) => (
+                <article className="asset-course-entry" key={course.course_id}>
+                  <div>
+                    <h3>{course.title}</h3>
+                    <p className="muted">{[course.subtitle, course.teacher, course.type].filter(Boolean).join(" · ") || course.course_id}</p>
+                  </div>
+                  <span className={`tag status-${course.status}`}>{STATUS_LABELS[course.status]}</span>
+                  <button className="tiny-button" onClick={() => navigateTo({ name: "detail", courseId: course.course_id })} type="button">
+                    {currentCopy.courseHint}
                   </button>
-                ) : null}
-              </article>
-            ))
-          : null}
-        {assetTab === "methods" ? methodAssets.map((item) => renderGeneralCard(item, "知识点：")) : null}
-        {assetTab === "words" ? wordAssets.map((item) => renderGeneralCard(item, "词：")) : null}
-        {assetTab === "materials" ? materialAssets.map((item) => renderGeneralCard(item, "素材：")) : null}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <StatePanel message="完成课程处理后，这里会列出可进入详情页查看资源的真实课程。" title="暂无可用课程入口" />
+          )}
+        </section>
       </div>
     </section>
   );
