@@ -1,61 +1,68 @@
-# OUTBOX · Codex · P2 S4 比例门 + 重试 + 兜底
+# OUTBOX · Codex · P3 S7 scaffold + 兜底
 
 ## 改动范围
 
-- 修改 `textcore/pipeline/stages/s4_clean.py`。
-- 修改 `tests/unit/test_pipeline_s4_s8.py`。
-- 未改 schema、前端、API、S5-S10 或其它 stage。
+- 修改 `textcore/pipeline/stages/s7_versions.py`。
+- 修改 `prompts/stages/s7_concise.system.md`。
+- 新增 `tests/unit/test_s7_versions.py`。
+- 更新 `tests/unit/test_pipeline_s4_s8.py` 的 S7 调用次数断言。
+- 未改 schema、前端、API、S4/S5/S6/S8 或其它 stage。
 - 未提交 git。
 
-## S4 改造点
+## S7 改造点
 
-- 每个 chunk 先用 `paragraph_text_for_chunk(chunk, paragraphs)` 取原文，并用 deterministic `text_char_count` 计算 `original_chars`。
-- LLM 正常返回 `chunkResult` 后，继续做既有 schema 校验和 chunk_id 校验。
-- 新增 faithful 比例门：
-  - 调 `check_version_ratio(version_key="faithful", preferred=(0.85, 0.93), hard=(0.70, 0.95))`。
-  - 本次门禁只处理过度摘要风险：`ratio >= 0.70` 接受。
-  - `ratio < 0.70` 追加提示重试一次：
-    `你上次输出过度摘要（只剩 {ratio:.0%}）。保真清洗不是摘要，请逐句保留老师讲解，保留原文 70%-90%。`
-- 重试仍低于 70% 时，调用 P1 deterministic `build_chunk_scaffolds(...)`，传入 `chunk_id/original_text/preserve_spans`，取 `faithful.body_md` 覆盖 `cleaned_text`。
-- 兜底时向该 chunk 的 `review_flags` 追加 schema-valid 标记：
-  - `flag_id`: `pipeline_fallback_{chunk_id}`
-  - `text`: `保真清洗兜底`
-  - `reason`: `S4 LLM 输出低于保真比例(<70%)，已回退确定性保真清洗`
-  - `category`: `other`
-  - `severity`: `medium`
-  - `status`: `open`
+- 每个 chunk 先调用 P1 `build_chunk_scaffolds(...)` 生成 faithful/concise/study/outline 四档确定性基线。
+- `faithful` 保持原逻辑：拼装 S4 `cleaned_text`，不调 LLM。
+- `concise` 仍逐块调 LLM，但 user payload 新增：
+  - `coverage_scaffold = scaf["concise"]["body_md"]`
+  - `hard_min_chars = int(text_char_count(cleaned_text) * 0.25)`
+- `concise` 比例门口径：
+  - 逐块计算 `text_char_count(llm_body) / text_char_count(S4 cleaned_text)`。
+  - 调 `check_version_ratio(version_key="concise", hard=(0.22, 0.45))`。
+  - 兜底只保护低覆盖：低于 `hard_min_chars` 或低于 hard 下限 0.22 时，回退该块 `scaf["concise"]["body_md"]`。
+  - 高于 hard 上限的 LLM 输出目前保留，避免很短 chunk 因标题字符触发回退。
+- `study` 改为直接拼装各块 `scaf["study"]["body_md"]`，不再依赖 S4 `key_points`。
+- `outline` 改为拼装各块 `scaf["outline"]["body_md"]`；当 S6 `outline_tree` 标题更丰富且合并后仍通过 outline ratio gate 时，合并 S6 标题。
+- 四档最终 `char_count` / `compression` 仍由 S7 `_version` 从实际 `body_md` 计算，`compression` clamp 到 `<= 1`。
+
+## 提示词
+
+- `s7_concise.system.md` 已更新输入说明：加入 `coverage_scaffold`、`hard_min_chars`。
+- 任务从自行摘要改为在 scaffold 覆盖范围上润色成段，并明确不得低于 `hard_min_chars`、不得漏掉 scaffold 主要讲解链条。
+- `s7_study.system.md` 未改；S7 当前不再调用它。
 
 ## 调用次数
 
-- 正常 faithful 比例达标：S4 每 chunk 仍 1 次 model_call。
-- 首次低于 70%：S4 对该 chunk 记录 2 次 model_call。
-- 兜底不额外记录 model_call，因为兜底是本地 deterministic scaffold。
+- S7 仍只对 concise 逐 chunk 调 LLM。
+- study / outline 不调 LLM。
 - 现有 S4-S8 mock 整链仍为 5 次 provider 调用：S4×1 + S6×1 + S7 concise×1 + S8×2。
+- 新增断言：S7 concise 调用次数等于 `chunk_results` 数；S7 study prompt 和旧 S7 四档 prompt 调用次数为 0。
 
 ## 测试
 
-- 新增 `test_s4_retries_once_when_cleaned_text_is_too_short`：
-  - 第一次 mock 返回过短 `cleaned_text`。
-  - 断言触发第二次 S4 调用，且 retry prompt 包含“过度摘要”。
-  - 第二次返回正常长度后不兜底。
-- 新增 `test_s4_falls_back_to_deterministic_faithful_scaffold_after_short_retry`：
-  - 两次 mock 都过短。
-  - 断言 fallback 后 `cleaned_text` 长度 >= 原文 70%。
-  - 断言保留 span `床前明月光，疑是地上霜。` 仍存在。
-  - 断言出现 `pipeline_fallback_` review_flag。
-- 新增 `test_s4_accepts_normal_length_cleaned_text_without_retry_or_fallback`：
-  - mock 返回正常长度。
-  - 断言只调用 1 次且无兜底 flag。
-- 更新原 S4-S8 mock 的 S4 `cleaned_text`，避免正常整链被误判为摘要。
+- 新增 `test_s7_concise_falls_back_to_scaffold_when_llm_is_too_short`：
+  - mock concise 返回过短。
+  - 断言回退 `concise` scaffold。
+  - 断言整篇 concise 占比 `>= 0.25`。
+  - 断言 user payload 包含 `coverage_scaffold` 和 `hard_min_chars`。
+- 新增 `test_s7_concise_keeps_normal_llm_result_without_fallback`：
+  - mock concise 返回正常覆盖结果。
+  - 断言使用 LLM body，不回退。
+- 新增 `test_s7_study_and_outline_use_deterministic_scaffolds_with_target_ratios`：
+  - 构造无 `key_points` chunk_results。
+  - 断言四档非空。
+  - 断言 study ratio 在 8%-12%，outline ratio 在 4%-7%。
+  - 断言 study/旧四档 prompt 未调用。
 
 ## 验证
 
-- `.venv/bin/python -m pytest tests/unit/test_pipeline_s4_s8.py -q`：4 passed。
+- `.venv/bin/python -m pytest tests/unit/test_s7_versions.py tests/integration/test_courses_api.py -q`：4 passed，1 个既有 StarletteDeprecationWarning。
+- `.venv/bin/python -m ruff check textcore/pipeline/stages/s7_versions.py tests/unit/test_s7_versions.py tests/unit/test_pipeline_s4_s8.py tests/integration/test_courses_api.py`：通过。
 - `make check`：通过。
   - 前端 typecheck/lint 通过。
   - `scripts/check_api.py` 通过。
-  - 全量 pytest：33 passed，1 个既有 StarletteDeprecationWarning。
+  - 全量 pytest：36 passed，1 个既有 StarletteDeprecationWarning。
 
 ## 遗留
 
-- S4 目前只对低于 70% 的过度摘要做重试/兜底；高于 hard upper 0.95 的偏长输出按任务要求仍接受。
+- S7 `run(...)` 当前没有 S3 原始 paragraph 文本输入；scaffold 的 `original_text` 会优先读 chunk_result 中可能存在的 `original_text/current_chunk_original/chunk_original/source_text/raw_text`，实际流水线里没有这些字段时退到 S4 `cleaned_text`。未改 runner，避免越过本任务边界。

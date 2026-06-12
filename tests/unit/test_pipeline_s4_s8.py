@@ -63,6 +63,9 @@ def test_pipeline_s4_s8_with_mock_provider_and_classics_service(tmp_path: Path) 
         "S8",
     }
     assert len(provider.calls) == 5  # S4×1 + S6×1 + S7concise(逐块)×1 + S8×2
+    assert _count_prompt_calls(provider, "S7 精简整理版生成") == len(state["chunk_results"])
+    assert _count_prompt_calls(provider, "S7 学习整理版生成") == 0
+    assert _count_prompt_calls(provider, "S7 四档版本生成") == 0
 
 
 def test_s4_retries_once_when_cleaned_text_is_too_short() -> None:
@@ -298,6 +301,10 @@ def _docx_bytes() -> bytes:
 
 def _json(payload: dict[str, object]) -> str:
     return json.dumps(payload, ensure_ascii=False)
+
+
+def _count_prompt_calls(provider: MockProvider, needle: str) -> int:
+    return sum(1 for system, _user in provider.calls if needle in system)
 
 
 def _s4_fixture() -> tuple[list[dict[str, object]], list[dict[str, object]]]:
