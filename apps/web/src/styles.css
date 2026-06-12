@@ -325,6 +325,27 @@ a {
   color: var(--color-danger);
 }
 
+.state-panel {
+  display: grid;
+  gap: 10px;
+  align-content: start;
+}
+
+.state-panel h3 {
+  margin: 0;
+  font-size: 21px;
+  line-height: 1.35;
+}
+
+.state-panel p {
+  margin: 0;
+}
+
+.state-panel .button-secondary {
+  justify-self: start;
+  margin-top: 6px;
+}
+
 .steps {
   display: grid;
   gap: 12px;
@@ -426,6 +447,14 @@ a {
   background: var(--color-surface-muted);
   font-size: 13px;
   white-space: nowrap;
+}
+
+.status-hint {
+  display: block;
+  margin-top: 5px;
+  color: var(--color-text-muted);
+  font-size: 12px;
+  line-height: 1.35;
 }
 
 .status-completed {

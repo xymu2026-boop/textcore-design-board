@@ -1,5 +1,4 @@
 import type { CourseListItem, CourseState, StatusEvent } from "./types";
-import { DEMO_COURSES } from "./demo";
 
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
 const env = import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } };
@@ -7,7 +6,7 @@ const env = import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } }
 export const API_BASE_URL =
   env.env?.VITE_API_BASE_URL?.replace(/\/$/, "") ?? DEFAULT_API_BASE_URL;
 
-class ApiError extends Error {
+export class ApiError extends Error {
   constructor(
     message: string,
     public readonly status?: number,
@@ -43,22 +42,12 @@ function getCourseId(payload: CourseListItem | CourseState | { course_id?: strin
 }
 
 export async function listCourses(): Promise<CourseListItem[]> {
-  try {
-    const payload = await requestJson<CourseListItem[] | { courses?: CourseListItem[] }>("/api/courses");
-    return unwrapCourses(payload);
-  } catch {
-    return DEMO_COURSES.map(toCourseListItem);
-  }
+  const payload = await requestJson<CourseListItem[] | { courses?: CourseListItem[] }>("/api/courses");
+  return unwrapCourses(payload);
 }
 
 export async function getCourse(courseId: string): Promise<CourseState> {
-  try {
-    return await requestJson<CourseState>(`/api/courses/${encodeURIComponent(courseId)}`);
-  } catch (error) {
-    const fallback = DEMO_COURSES.find((course) => course.course_id === courseId);
-    if (fallback) return fallback;
-    throw error;
-  }
+  return requestJson<CourseState>(`/api/courses/${encodeURIComponent(courseId)}`);
 }
 
 export async function uploadCourse(file: File): Promise<{ course_id: string }> {
@@ -127,25 +116,4 @@ export async function requestExport(
   }
 
   return response.blob();
-}
-
-function toCourseListItem(course: CourseState): CourseListItem {
-  const source = course.source;
-  const meta = source.detected_meta;
-  const dominantType = course.course_types?.dominant_type;
-  const type =
-    meta?.content_type_candidates?.join(" + ") ??
-    (course.course_types?.mixed ? "混合课" : dominantType) ??
-    "课堂转写";
-
-  return {
-    course_id: course.course_id,
-    title: meta?.course_title ?? source.file ?? course.course_id,
-    subtitle: source.file,
-    teacher: meta?.teacher,
-    type,
-    status: course.status,
-    review_count: (course.review_flags ?? []).filter((flag) => flag.status !== "resolved").length,
-    updated_at: source.imported_at,
-  };
 }

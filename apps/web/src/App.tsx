@@ -1,6 +1,7 @@
 import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
+  ApiError,
   getCourse,
   listCourses,
   requestExport,
@@ -43,10 +44,18 @@ type DrawerState =
 type UploadState = {
   fileName?: string;
   courseId?: string;
-  status: "idle" | "uploading" | "processing" | "completed" | "failed";
+  status: "idle" | "uploading" | "processing" | "completed" | "failed" | "interrupted";
   progress: number;
   message?: string;
   events: StatusEvent[];
+};
+
+type LoadStatus = "idle" | "loading" | "success" | "error";
+
+type DetailError = {
+  title: string;
+  message: string;
+  canRetry: boolean;
 };
 
 type ChunkNavItem = {
@@ -83,6 +92,12 @@ const STATUS_LABELS: Record<CourseStatus, string> = {
   completed: "已完成",
   failed: "失败",
   needs_human: "有待复核",
+};
+
+const STATUS_HINTS: Partial<Record<CourseStatus, string>> = {
+  created: "等待处理",
+  processing: "正在生成，暂不可导出",
+  failed: "处理失败",
 };
 
 const INITIAL_UPLOAD_STATE: UploadState = {
@@ -237,6 +252,16 @@ function compactText(value: string | undefined, fallback = "暂无说明"): stri
     .replace(/\s+/g, " ")
     .trim();
   return text || fallback;
+}
+
+function errorDetail(error: unknown): string {
+  if (error instanceof ApiError && error.status) return `HTTP ${error.status}`;
+  if (error instanceof Error && error.message) return error.message;
+  return "";
+}
+
+function canExportCourse(status: CourseStatus): boolean {
+  return status === "completed" || status === "needs_human";
 }
 
 function textIncludes(value: string | undefined, query: string): boolean {
@@ -507,6 +532,30 @@ function Topbar({ active }: { active: Route["name"] }) {
   );
 }
 
+function StatePanel({
+  title,
+  message,
+  actionLabel,
+  onAction,
+}: {
+  title: string;
+  message: string;
+  actionLabel?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <section className="empty-panel state-panel">
+      <h3>{title}</h3>
+      <p className="muted">{message}</p>
+      {onAction ? (
+        <button className="button-secondary" onClick={onAction} type="button">
+          {actionLabel ?? "重试"}
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
 function UploadPanel({
   upload,
   onUpload,
@@ -584,6 +633,8 @@ function ProgressPanel({ latestCourse, upload }: { latestCourse?: CourseListItem
       ? latestCourse
         ? `最近完成：${latestCourse.title}`
         : "等待第一篇课稿"
+      : upload.status === "interrupted"
+        ? `进度连接中断：${upload.fileName ?? latestCourse?.title ?? "新课稿"}`
       : `正在整理：${upload.fileName ?? latestCourse?.title ?? "新课稿"}`;
 
   return (
@@ -616,18 +667,17 @@ function CourseTable({
   courses,
   compact = false,
   onExport,
+  emptyTitle = "还没有课稿",
+  emptyMessage = "上传 Word 后，这里会显示处理状态。",
 }: {
   courses: CourseListItem[];
   compact?: boolean;
   onExport: (courseId: string) => void;
+  emptyTitle?: string;
+  emptyMessage?: string;
 }) {
   if (courses.length === 0) {
-    return (
-      <section className="empty-panel">
-        <h3>还没有课稿</h3>
-        <p className="muted">后端列表为空或 API 暂不可用。上传 Word 后，这里会显示处理状态。</p>
-      </section>
-    );
+    return <StatePanel message={emptyMessage} title={emptyTitle} />;
   }
 
   return (
@@ -680,6 +730,7 @@ function CourseTable({
               )}
               <td>
                 <span className={`tag status-${course.status}`}>{STATUS_LABELS[course.status]}</span>
+                {STATUS_HINTS[course.status] ? <small className="status-hint">{STATUS_HINTS[course.status]}</small> : null}
               </td>
               {!compact ? <td>{course.updated_at ?? "刚刚"}</td> : null}
               {!compact ? <td>{course.review_count ? `${course.review_count} 条` : "无"}</td> : null}
@@ -692,7 +743,13 @@ function CourseTable({
                   {compact ? "查看课稿" : "查看"}
                 </button>
                 {!compact ? (
-                  <button className="tiny-button" onClick={() => onExport(course.course_id)} type="button">
+                  <button
+                    className="tiny-button"
+                    disabled={!canExportCourse(course.status)}
+                    onClick={() => onExport(course.course_id)}
+                    title={canExportCourse(course.status) ? "导出 Word" : STATUS_HINTS[course.status] ?? "当前状态不可导出"}
+                    type="button"
+                  >
                     导出
                   </button>
                 ) : null}
@@ -707,12 +764,18 @@ function CourseTable({
 
 function WorkspacePage({
   courses,
+  listError,
+  listStatus,
   upload,
+  onRetry,
   onUpload,
   onExport,
 }: {
   courses: CourseListItem[];
+  listError: string;
+  listStatus: LoadStatus;
   upload: UploadState;
+  onRetry: () => void;
   onUpload: (file: File) => void;
   onExport: (courseId: string) => void;
 }) {
@@ -721,7 +784,22 @@ function WorkspacePage({
       <UploadPanel onUpload={onUpload} upload={upload} />
       <div className="workspace-side">
         <ProgressPanel latestCourse={courses[0]} upload={upload} />
-        <CourseTable compact courses={courses.slice(0, 3)} onExport={onExport} />
+        {listStatus === "error" ? (
+          <StatePanel
+            actionLabel="重试连接"
+            message={listError || "请确认后端服务已在 127.0.0.1:8000 启动，然后重试。"}
+            onAction={onRetry}
+            title="无法连接后端服务"
+          />
+        ) : (
+          <CourseTable
+            compact
+            courses={courses.slice(0, 3)}
+            emptyMessage={listStatus === "loading" ? "正在从后端读取课程列表..." : "上传 Word 后，这里会显示最近处理的课稿。"}
+            emptyTitle={listStatus === "loading" ? "正在加载课稿" : "还没有课稿"}
+            onExport={onExport}
+          />
+        )}
       </div>
     </section>
   );
@@ -730,11 +808,15 @@ function WorkspacePage({
 function CoursesPage({
   courses,
   error,
+  listStatus,
   onExport,
+  onRetry,
 }: {
   courses: CourseListItem[];
   error?: string;
+  listStatus: LoadStatus;
   onExport: (courseId: string) => void;
+  onRetry: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<CourseStatus | "all">("all");
@@ -755,27 +837,48 @@ function CoursesPage({
           上传新课稿
         </button>
       </div>
-      {error ? <p className="inline-error">{error}</p> : null}
-      <div className="filter-panel">
-        <input
-          className="search-input"
-          onChange={(event) => setQuery(event.currentTarget.value)}
-          placeholder="搜索课程名、老师、课型"
-          value={query}
+      {listStatus === "error" ? (
+        <StatePanel
+          actionLabel="重试"
+          message={error || "请确认后端服务可访问后重试。"}
+          onAction={onRetry}
+          title="课程列表加载失败"
         />
-        <select
-          className="select-input"
-          onChange={(event) => setStatus(event.currentTarget.value as CourseStatus | "all")}
-          value={status}
-        >
-          <option value="all">全部状态</option>
-          <option value="processing">处理中</option>
-          <option value="completed">已完成</option>
-          <option value="needs_human">有复核</option>
-          <option value="failed">失败</option>
-        </select>
-      </div>
-      <CourseTable courses={filtered} onExport={onExport} />
+      ) : (
+        <>
+          <div className="filter-panel">
+            <input
+              className="search-input"
+              onChange={(event) => setQuery(event.currentTarget.value)}
+              placeholder="搜索课程名、老师、课型"
+              value={query}
+            />
+            <select
+              className="select-input"
+              onChange={(event) => setStatus(event.currentTarget.value as CourseStatus | "all")}
+              value={status}
+            >
+              <option value="all">全部状态</option>
+              <option value="processing">处理中</option>
+              <option value="completed">已完成</option>
+              <option value="needs_human">有复核</option>
+              <option value="failed">失败</option>
+            </select>
+          </div>
+          <CourseTable
+            courses={filtered}
+            emptyMessage={
+              listStatus === "loading"
+                ? "正在从后端读取课程列表..."
+                : courses.length === 0
+                  ? "后端当前没有课程。上传 Word 后，课程会出现在这里。"
+                  : "没有符合当前筛选条件的课程。"
+            }
+            emptyTitle={listStatus === "loading" ? "正在加载课稿" : courses.length === 0 ? "还没有课稿" : "没有匹配结果"}
+            onExport={onExport}
+          />
+        </>
+      )}
     </section>
   );
 }
@@ -1146,6 +1249,8 @@ function ExportModal({
   const [format, setFormat] = useState("printable");
   const [sections, setSections] = useState(["summary", "concise", "cards", "materials", "review"]);
   const [message, setMessage] = useState("");
+  const [failed, setFailed] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
 
   if (!courseId) return null;
 
@@ -1156,6 +1261,9 @@ function ExportModal({
   };
 
   const submit = async () => {
+    if (submitting) return;
+    setSubmitting(true);
+    setFailed(false);
     setMessage("正在生成 Word...");
     try {
       const blob = await requestExport(courseId, { version, sections, format });
@@ -1167,7 +1275,11 @@ function ExportModal({
       URL.revokeObjectURL(url);
       setMessage("已开始下载。");
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "导出失败");
+      const detail = errorDetail(error);
+      setFailed(true);
+      setMessage(detail ? `导出失败，请重试。${detail}` : "导出失败，请重试。");
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -1216,13 +1328,13 @@ function ExportModal({
             完整留档
           </button>
         </div>
-        {message ? <p className="muted">{message}</p> : null}
+        {message ? <p className={failed ? "inline-error" : "muted"}>{message}</p> : null}
         <footer className="modal-actions">
           <button className="button-secondary" onClick={onClose} type="button">
             取消
           </button>
-          <button className="button-primary" onClick={submit} type="button">
-            生成 Word
+          <button className="button-primary" disabled={submitting || sections.length === 0} onClick={submit} type="button">
+            {failed ? "重试生成" : submitting ? "生成中..." : "生成 Word"}
           </button>
         </footer>
       </section>
@@ -1238,7 +1350,8 @@ function CourseDetail({
   onExport: (courseId: string, version?: VersionKey) => void;
 }) {
   const [course, setCourse] = useState<CourseState | null>(null);
-  const [error, setError] = useState("");
+  const [error, setError] = useState<DetailError | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const [version, setVersion] = useState<VersionKey>(DEFAULT_VERSION);
   const [compare, setCompare] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
@@ -1247,7 +1360,7 @@ function CourseDetail({
   useEffect(() => {
     let active = true;
     setCourse(null);
-    setError("");
+    setError(null);
     getCourse(courseId)
       .then((payload) => {
         if (!active) return;
@@ -1256,12 +1369,24 @@ function CourseDetail({
       })
       .catch((err: unknown) => {
         if (!active) return;
-        setError(err instanceof Error ? err.message : "课程详情加载失败");
+        if (err instanceof ApiError && err.status === 404) {
+          setError({
+            title: "未找到该课程",
+            message: "该课程不存在或已经被后端移除。请返回课稿库确认最新列表。",
+            canRetry: false,
+          });
+          return;
+        }
+        setError({
+          title: "加载失败",
+          message: errorDetail(err) || "无法加载课程详情，请确认后端服务可访问后重试。",
+          canRetry: true,
+        });
       });
     return () => {
       active = false;
     };
-  }, [courseId]);
+  }, [courseId, reloadKey]);
 
   const jumpTo = (anchor?: string) => {
     if (!anchor) return;
@@ -1281,13 +1406,12 @@ function CourseDetail({
 
   if (error) {
     return (
-      <section className="empty-panel">
-        <h1>课程详情暂不可用</h1>
-        <p className="muted">{error}</p>
-        <button className="button-secondary" onClick={() => navigateTo({ name: "courses" })} type="button">
-          返回课稿库
-        </button>
-      </section>
+      <StatePanel
+        actionLabel={error.canRetry ? "重试" : "返回课稿库"}
+        message={error.message}
+        onAction={error.canRetry ? () => setReloadKey((current) => current + 1) : () => navigateTo({ name: "courses" })}
+        title={error.title}
+      />
     );
   }
 
@@ -1310,6 +1434,8 @@ function CourseDetail({
     review: reviewFlags.length,
     classics: course.classics_refs?.filter((item) => item.matched).length ?? 0,
   };
+  const isProcessing = course.status === "created" || course.status === "processing";
+  const isFailed = course.status === "failed";
 
   return (
     <section>
@@ -1338,11 +1464,28 @@ function CourseDetail({
             <span className="tag">待复核 {reviewFlags.length} 条</span>
           </div>
         </div>
-        <button className="button-primary" onClick={() => onExport(course.course_id, version)} type="button">
+        <button
+          className="button-primary"
+          disabled={!canExportCourse(course.status)}
+          onClick={() => onExport(course.course_id, version)}
+          title={canExportCourse(course.status) ? "导出 Word" : STATUS_HINTS[course.status] ?? "当前状态不可导出"}
+          type="button"
+        >
           ⇩ 导出 Word
         </button>
       </div>
 
+      {isProcessing ? (
+        <StatePanel
+          message="后端仍在生成课程版本、知识卡片和导出材料。完成前不会显示为可导出的完成稿。"
+          title="课程处理中"
+        />
+      ) : isFailed ? (
+        <StatePanel
+          message="后端返回处理失败。当前课程不可导出，请检查后端处理日志或重新上传课稿。"
+          title="处理失败"
+        />
+      ) : (
       <div className="detail-layout">
         <article className="reading-panel">
           <section className="source-summary">
@@ -1448,6 +1591,7 @@ function CourseDetail({
           />
         </aside>
       </div>
+      )}
       {popover ? (
         <InsightPopover
           insight={popover}
@@ -1683,6 +1827,7 @@ export function App() {
   const route = useRoute();
   const [courses, setCourses] = useState<CourseListItem[]>([]);
   const [listError, setListError] = useState("");
+  const [listStatus, setListStatus] = useState<LoadStatus>("idle");
   const [upload, setUpload] = useState<UploadState>(INITIAL_UPLOAD_STATE);
   const [exportTarget, setExportTarget] = useState<{ courseId?: string; version: VersionKey }>({
     version: DEFAULT_VERSION,
@@ -1690,13 +1835,17 @@ export function App() {
   const eventSourceRef = useRef<EventSource | null>(null);
 
   const refreshCourses = useCallback(() => {
+    setListStatus("loading");
     listCourses()
       .then((payload) => {
         setCourses(payload);
         setListError("");
+        setListStatus("success");
       })
       .catch((error: unknown) => {
-        setListError(error instanceof Error ? error.message : "课稿列表加载失败");
+        setCourses([]);
+        setListError(errorDetail(error) || "请确认后端服务可访问后重试。");
+        setListStatus("error");
       });
   }, []);
 
@@ -1729,28 +1878,40 @@ export function App() {
       eventSourceRef.current = subscribeCourseEvents(
         result.course_id,
         (event) => {
+          const nextStatus =
+            event.overall_status === "completed"
+              ? "completed"
+              : event.overall_status === "failed" || event.stage_status === "failed"
+                ? "failed"
+                : "processing";
           setUpload((current) => ({
             ...current,
-            status:
-              event.overall_status === "completed"
-                ? "completed"
-                : event.overall_status === "failed"
-                  ? "failed"
-                  : "processing",
+            status: nextStatus,
             progress: event.progress ?? current.progress,
             message: event.message ?? event.stage_label ?? current.message,
             events: [...current.events, event].slice(-12),
           }));
-          if (event.overall_status === "completed") {
+          if (nextStatus === "completed" || nextStatus === "failed") {
             eventSourceRef.current?.close();
             refreshCourses();
           }
         },
         () => {
+          const interruptedEvent: StatusEvent = {
+            course_id: result.course_id,
+            stage: "进度连接",
+            stage_label: "进度连接中断",
+            stage_status: "failed",
+            message: "SSE 进度连接中断",
+          };
           setUpload((current) => ({
             ...current,
-            message: "SSE 连接中断，可稍后从课稿库查看结果。",
+            status: current.status === "completed" || current.status === "failed" ? current.status : "interrupted",
+            message: "进度连接中断，后端可能仍在处理。可重试刷新课稿库查看最新状态。",
+            events: [...current.events, interruptedEvent].slice(-12),
           }));
+          eventSourceRef.current?.close();
+          refreshCourses();
         },
       );
       refreshCourses();
@@ -1770,7 +1931,15 @@ export function App() {
 
   const page = useMemo(() => {
     if (route.name === "courses") {
-      return <CoursesPage courses={courses} error={listError} onExport={openExport} />;
+      return (
+        <CoursesPage
+          courses={courses}
+          error={listError}
+          listStatus={listStatus}
+          onExport={openExport}
+          onRetry={refreshCourses}
+        />
+      );
     }
     if (route.name === "detail") {
       return <CourseDetail courseId={route.courseId} onExport={openExport} />;
@@ -1778,8 +1947,18 @@ export function App() {
     if (route.name === "assets") {
       return <AssetsPage courses={courses} />;
     }
-    return <WorkspacePage courses={courses} onExport={openExport} onUpload={handleUpload} upload={upload} />;
-  }, [courses, listError, route, upload]);
+    return (
+      <WorkspacePage
+        courses={courses}
+        listError={listError}
+        listStatus={listStatus}
+        onExport={openExport}
+        onRetry={refreshCourses}
+        onUpload={handleUpload}
+        upload={upload}
+      />
+    );
+  }, [courses, listError, listStatus, route, upload, refreshCourses]);
 
   return (
     <div className="app-shell">

@@ -1,49 +1,39 @@
-# INBOX · 给 Codex CLI 的任务
+# INBOX · Codex · A1 清理假数据回退 + 补齐 API 错误态
 
-> 你是文心 TextCore 项目的主力开发（gpt-5.5 / 高推理）。这是当前任务。
-> 一切走文件：实现完成后把结果写进 `handoff/OUTBOX_CODEX.md`，并在 `handoff/LOG.md` 追加一行。
+> 前端收尾阶段第一步。**只碰 `apps/web/`**。结果写 `handoff/OUTBOX_CODEX.md`，`LOG.md` 追加一行。**不提交 git**（Claude 审查后统一提交）。
+> 背景与全计划见 `00_产品设计/开发计划/TextCore_后续项目计划_v1.0_前端优先.md` 及你自己的审查 `handoff/CODEX_REVIEW_PLAN.md`。
 
-## 任务 T001 · Phase 0 工程脚手架 + AI 协作控制台
+## 要解决的问题
+上一轮你自行加的 `apps/web/src/api/demo.ts` + `client.ts` 在 API 失败时**静默回退显示硬编码假课程**。这会误导验收、掩盖真实后端连接问题，违反"数据只来自真实 API"。本任务清除它，并把"API 失败"做成**明确、受控、可重试**的错误态。
 
-### 目标
-把这个目前只有设计文档的仓库，初始化成一个可运行、可协作的 monorepo 工程骨架。
-**只搭骨架和占位，不实现业务逻辑。**
+## 范围（只动 apps/web）
+1. **删除假数据回退**
+   - 删除 `apps/web/src/api/demo.ts`。
+   - `apps/web/src/api/client.ts` 去掉对 DEMO_COURSES 的 import 和所有 fallback 逻辑：API 失败就抛错/返回错误状态，**绝不返回假数据**。
+2. **补齐 API 错误态（带重试按钮）**
+   - 工作台：后端未连接 → 显示"无法连接后端服务"+重试。
+   - 课稿库：列表请求失败 → "课程列表加载失败"+重试；空列表（无课程）→ 友好空态（区别于"失败"）。
+   - 详情页：课程不存在(404) → "未找到该课程"；详情请求失败 → "加载失败"+重试。
+   - 导出：导出失败 → 提示失败，可重试。
+3. **处理中/失败状态**（把计划 A4 的错误/空态一起做）
+   - 课程 status=processing：详情页或列表给"处理中"提示，相关按钮（导出等）禁用，不要显示"假完成"。
+   - status=failed：明确显示"处理失败"。
+   - SSE 进度中断：给可理解的提示，不卡死。
+4. **真实 API 可用时体验不变**：后端正常时，列表/详情/上传/进度/导出照常工作。
 
-### 必读背景（仓库内）
-- `00_产品设计/开发计划/TextCore_正式开发框架与AI协作计划_v0.1.md`（§3.2 工程目录、§4 Phase 0、§7 纪律）
-- `ai/decisions/ADR-001-tech-stack.md`（技术栈）
-- `ai/decisions/ADR-004-version-tiers.md`（四档版本，代码用英文 key：faithful/concise/study/outline）
+## 不做 / 边界
+- 不碰 `apps/api/`、`textcore/`、`schemas/`、`prompts/`、数据契约、`docs/prototype/`。
+- 不引入任何前端硬编码业务数据；开发样例只能通过后端 seed / `data/processed` 经真实 API 进入。
+- 若发现 API 缺字段，在 OUTBOX 写"需要后端补字段 XXX"，**不要**自己改后端/契约。
+- 不提交 git。
 
-### 范围（要创建的东西）
-1. 工程目录骨架（按开发计划 §3.2）：
-   - `apps/web/`：Vite + React + TypeScript 占位应用（能 `npm run dev` 起一个空白首页即可）。
-   - `apps/api/`：FastAPI 占位服务（一个 `/health` 路由返回 `{"status":"ok"}`）。
-   - `textcore/`：Python 包占位（`contracts/ pipeline/{stages,runner.py,state.py} llm/ classics/ exporters/ storage/`，
-     先放空模块 + docstring，不实现）。
-   - `prompts/{rules,stages,qa}/`、`schemas/{stages,api}/`、`data/{db,uploads,processed,exports,classics}/`（带 `.gitkeep`）。
-   - `tests/{fixtures,unit,integration,regression}/`。
-2. 工程文件：
-   - 根 `Makefile`：`make dev`（并行起前后端）、`make check`（前端 tsc/lint + 后端 ruff/pytest 占位，先保证能跑通不报错）、`make install`。
-   - `AGENTS.md`：Codex/Claude 共同工作规则（参考 §5，含信箱协议、分工、纪律、不动 docs/ 与素材/）。
-   - `CLAUDE.md`：Claude Code 专用上下文（项目一句话、当前阶段指针、关键文档路径）。
-   - `README.md`：在现有内容基础上**追加**一个"开发"小节（不要删除现有设计板说明）。
-   - `.env.example`：列出 `DEEPSEEK_API_KEY=` 等占位变量；`.gitignore` 追加 `.env.local`、`data/`、`node_modules/`、`__pycache__/`、`*.pyc`、`dist/`、`.venv/`。
-   - `ai/TASK_QUEUE.md`、`ai/HANDOFF_TEMPLATE.md`（任务/交接模板）。
-3. Python 后端用 `uv` 或 `venv + requirements.txt`（二选一，注明）；前端用 `npm`。
+## 验收标准
+- `grep -r "DEMO_COURSES\|demo.ts" apps/web/src` 无业务数据回退残留。
+- 后端关闭时：三个页面显示明确错误 + 重试按钮，**不显示任何假课程**。
+- 后端开启时：6 篇真实课程、四档、详情正常渲染，体验不回退。
+- 空列表、processing、failed 三种状态各有清晰呈现。
+- `cd apps/web && npm run check` 通过；`npm run build` 通过。
 
-### 不做
-- 不实现任何业务逻辑、Schema 内容、流水线、API 业务路由（除 /health）。
-- 不碰 `docs/`、`00_产品设计/`、`素材/`、`tools/`、`ai/decisions/`。
-- 不提交 git（由 Claude 审查后统一提交）。
-- 不写真实密钥。
-
-### 验收标准
-- `make install` 能装好前后端依赖。
-- `make dev` 能同时起 Vite（前端空白页）和 FastAPI（`/health` 返回 ok）。
-- `make check` 跑通且无报错（占位级即可）。
-- 目录结构与开发计划 §3.2 一致。
-- `.env.local` / `data/` 已被 gitignore。
-
-### 完成后
-- 在 `handoff/OUTBOX_CODEX.md` 写：做了什么、目录树、如何启动、`make check` 结果、遗留问题/需确认项。
-- 在 `handoff/LOG.md` 追加：`[时间] CODEX: T001 Phase0 脚手架完成`。
+## 完成后
+- `OUTBOX_CODEX.md`：删了什么、各页面错误/空/处理中态如何呈现、是否发现缺字段、check/build 结果、遗留。
+- `LOG.md` 追加：`[时间] CODEX: A1 清假数据回退+错误态 完成`。

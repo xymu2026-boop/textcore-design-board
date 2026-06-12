@@ -1,126 +1,44 @@
-# OUTBOX · CODEX · T001 Phase 0
+# OUTBOX · Codex · A1 清理假数据回退 + API 错误态
 
-## 结果
+## 改动范围
 
-已完成 Phase 0 工程脚手架与 AI 协作控制台占位。只搭骨架，不实现业务逻辑。
+- 删除 `apps/web/src/api/demo.ts`。
+- 更新 `apps/web/src/api/client.ts`：移除 `DEMO_COURSES` import、列表/详情 fallback、`toCourseListItem` 假数据转换；API 失败现在直接抛出真实错误。
+- 更新 `apps/web/src/App.tsx` 和 `apps/web/src/styles.css`：补齐工作台、课稿库、详情页、导出、SSE 中断、processing/failed 状态 UI。
 
-## 做了什么
+## 页面状态
 
-- 新增 `apps/web/`：Vite + React + TypeScript 占位应用，首页为空白 shell。
-- 新增 `apps/api/`：FastAPI 占位服务，`GET /health` 返回 `{"status":"ok"}`。
-- 新增 `textcore/` Python 包占位：`contracts/`、`pipeline/`、`pipeline/stages/`、`llm/`、`classics/`、`exporters/`、`storage/`。
-- 新增 `prompts/`、`schemas/`、`data/`、`tests/` 骨架与 `.gitkeep`。
-- 新增根 `Makefile`：`make install`、`make dev`、`make check`。
-- 新增 `AGENTS.md`、`CLAUDE.md`、`ai/TASK_QUEUE.md`、`ai/HANDOFF_TEMPLATE.md`。
-- 追加 `README.md` 的“开发”小节，保留原设计板说明。
-- 新增 `.env.example`，追加 `.gitignore`：`.env.local`、`data/**`、`node_modules/`、`__pycache__/`、`*.pyc`、`dist/`、`.venv/`。
-- Python 依赖方案：`venv + requirements.txt`；前端依赖方案：`npm`。
+- 工作台：
+  - 后端列表请求失败显示「无法连接后端服务」和「重试连接」按钮。
+  - 空列表显示「还没有课稿」，不再把 API 不可用混为空态。
+- 课稿库：
+  - 列表请求失败显示「课程列表加载失败」和「重试」按钮。
+  - 后端返回空数组时显示友好空态。
+  - 筛选无结果显示「没有匹配结果」。
+- 详情页：
+  - 404 显示「未找到该课程」，按钮返回课稿库。
+  - 非 404 失败显示「加载失败」和「重试」按钮。
+  - `created` / `processing` 显示「课程处理中」，不渲染正文版本区，导出禁用。
+  - `failed` 显示「处理失败」，导出禁用。
+- 导出：
+  - 导出请求失败显示「导出失败，请重试」。
+  - 失败后主按钮变为「重试生成」。
+  - 生成中禁用重复提交。
+- SSE：
+  - 进度连接中断时追加「进度连接中断」失败事件，状态显示「进度连接中断」，并触发一次列表刷新，不再保持无解释的处理中卡住状态。
 
-## 目录树
+## 后端字段
 
-```text
-apps/
-  api/
-    __init__.py
-    main.py
-    requirements.txt
-  web/
-    index.html
-    package.json
-    scripts/
-      dev.mjs
-      lint.mjs
-      typecheck.mjs
-    src/
-      App.tsx
-      main.tsx
-      styles.css
-    tsconfig.json
-    vite.config.ts
-textcore/
-  contracts/
-  pipeline/
-    stages/
-    runner.py
-    state.py
-  llm/
-  classics/
-  exporters/
-  storage/
-prompts/
-  rules/
-  stages/
-  qa/
-schemas/
-  course_state.schema.json
-  stages/
-  api/
-data/
-  db/
-  uploads/
-  processed/
-  exports/
-  classics/
-tests/
-  fixtures/
-  unit/test_health.py
-  integration/
-  regression/
-ai/
-  CURRENT_STATUS.md
-  TASK_QUEUE.md
-  HANDOFF_TEMPLATE.md
-  decisions/
-```
+- 未发现必须补齐的新字段。
 
-## 如何启动
+## 验证
 
-```bash
-make install
-make dev
-```
+- `grep -r "DEMO_COURSES\|demo.ts" apps/web/src`：无输出。
+- `cd apps/web && npm run check`：通过。
+- `cd apps/web && npm run build`：通过。
+- `git diff --check -- apps/web/src/App.tsx apps/web/src/api/client.ts apps/web/src/api/demo.ts apps/web/src/styles.css`：通过。
 
-默认地址：
+## 未完成 / 遗留
 
-- Web: `http://127.0.0.1:5173`
-- API: `http://127.0.0.1:8000`
-- Health: `http://127.0.0.1:8000/health`
-
-说明：前端 `npm run dev` 会优先使用安装后的 Vite；当前依赖未安装时，提供一个仅用于 Phase 0 的空白页 fallback，避免无网络环境无法验证 app shell。
-
-## 验收结果
-
-`make check` 已通过：
-
-```text
-frontend typecheck: passed with placeholder fallback because TypeScript is not installed
-frontend lint: passed
-backend ruff: placeholder Python compile check because Ruff is not installed
-pytest: 1 passed, 1 warning
-```
-
-`/health` 已由 `tests/unit/test_health.py` 通过 FastAPI TestClient 验证。
-
-`.gitignore` 验证：
-
-```text
-.env.local ignored
-data/db/example.sqlite3 ignored
-data/uploads/example.docx ignored
-node_modules/example ignored
-__pycache__/x.pyc ignored
-dist/app.js ignored
-.venv/bin/python ignored
-```
-
-## 环境限制 / 遗留问题
-
-- 本轮沙箱禁止 pip 通过本机代理访问网络，`make install` 的 Python 依赖下载失败；本机全局已有 FastAPI/Uvicorn/Pytest，所以 `make check` 可通过。
-- `npm install` 在本轮沙箱网络限制下挂起，已尝试终止；前端依赖未实际下载。
-- 当前沙箱禁止监听 `127.0.0.1` 端口，`make dev` 无法完成端口级实测。代码保留标准启动命令，需 Claude 在正常本地终端复验。
-- Ruff 未安装时 `make check` 使用 Python compile fallback；正常安装依赖后会走真实 Ruff。
-
-## 需 Claude 复核
-
-- 是否接受无网络环境下的 `make check` fallback 设计。
-- 在正常网络和可监听端口的本地 shell 中重跑：`make install`、`make dev`、访问 `/health`、`make check`。
+- 未提交 git，按要求等待 Claude 审查后统一提交。
+- 浏览器验证未执行：沙箱拒绝本地前端服务监听 `127.0.0.1:5173`，报错 `listen EPERM`。
