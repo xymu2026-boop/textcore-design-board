@@ -10,6 +10,7 @@ from textcore.pipeline.deterministic.quality_gates import (
     DEFAULT_VERSION_RANGES,
     check_version_ratio,
 )
+from textcore.pipeline.deterministic.quality_rubric import SCORE_KEYS, score_course
 from textcore.pipeline.deterministic.version_scaffold import text_char_count
 
 VERSION_LABELS = {
@@ -93,24 +94,26 @@ def evaluate_quality(
     ratio_findings, has_ratio_risk = _version_ratio_findings(versions, chunk_results)
     classics_risks, has_classics_diff = _classics_risks(classics_refs)
     high_count = sum(1 for flag in review_flags if flag.get("severity") == "high")
-    medium_count = sum(1 for flag in review_flags if flag.get("severity") == "medium")
-    low_count = sum(1 for flag in review_flags if flag.get("severity") == "low")
+    rubric = score_course(
+        {
+            "chunk_results": chunk_results,
+            "classics_refs": classics_refs,
+            "global": global_result,
+            "versions": versions,
+            "review_flags": review_flags,
+        }
+    )
 
     main_risks = _dedupe_strings(
-        coverage_risks
+        [_rubric_score_line(rubric)]
+        + coverage_risks
         + ratio_findings
         + classics_risks
         + [flag["reason"] for flag in review_flags if flag.get("reason")]
     )[:12]
-    score = 100
-    score -= len(coverage_risks) * 10
-    score -= _ratio_penalty(ratio_findings)
-    score -= len(classics_risks) * 8
-    score -= high_count * 12 + medium_count * 4 + low_count * 2
-    score = max(0, min(100, score))
     coverage = _coverage_label(coverage_risks, versions, global_result)
     quality = {
-        "quality_score": int(score),
+        "quality_score": int(rubric["overall"]),
         "coverage": coverage,
         "main_risks": main_risks,
         "recommended_human_review": bool(high_count or has_classics_diff or has_ratio_risk),
@@ -264,6 +267,11 @@ def _ratio_penalty(findings: list[str]) -> int:
         elif finding.startswith("[warning]"):
             penalty += 3
     return penalty
+
+
+def _rubric_score_line(rubric: dict[str, int]) -> str:
+    details = " ".join(f"{key}={rubric[key]}" for key in SCORE_KEYS)
+    return f"[score] {details} overall={rubric['overall']}"
 
 
 def _classics_risks(classics_refs: list[dict[str, Any]]) -> tuple[list[str], bool]:

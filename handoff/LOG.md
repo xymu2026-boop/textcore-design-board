@@ -30,3 +30,5 @@
 [2026-06-12 22:55:45 CST] CODEX: exam_library 中考古诗文扩展至28条并刷新报告
 [2026-06-12 22:57:39 CST] CODEX: exam_library 2024高考作文6条提升为verified并刷新总览
 [2026-06-12 23:01:12 CST] CODEX: exam_library 2023高考作文提升verified并生成中考作品匹配报告
+[2026-06-12 23:12:10 CST] CODEX: exam_library 高考作文verified提升至30条，古诗文消歧优先表/重算脚本落地，综合匹配148/155
+[2026-06-12 23:12:37 +0800] CODEX: B1 质量记分卡 完成
