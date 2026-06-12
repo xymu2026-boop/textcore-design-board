@@ -1,4 +1,4 @@
-import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import {
   ApiError,
@@ -238,6 +238,51 @@ function anchoredHtmlFromBody(input: string | undefined, navItems: ChunkNavItem[
       .forEach((child) => section.appendChild(child));
   });
   return body.innerHTML;
+}
+
+function htmlWithChunkNavigation(html: string, navItems: ChunkNavItem[]): string {
+  if (!navItems.length || typeof DOMParser === "undefined") return html;
+
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const body = document.body;
+
+  navItems.forEach((item, index) => {
+    const section = body.querySelector(`#${cssIdentifier(item.id)}`);
+    if (!(section instanceof HTMLElement)) return;
+
+    Array.from(section.children)
+      .filter((child) => child.classList.contains("chunk-footer"))
+      .forEach((child) => child.remove());
+
+    const footer = document.createElement("div");
+    footer.className = "chunk-footer";
+
+    footer.appendChild(createChunkNavButton(document, "上一段", navItems[index - 1]?.id));
+    footer.appendChild(createChunkNavButton(document, "回到目录", undefined, "toc"));
+    footer.appendChild(createChunkNavButton(document, "下一段", navItems[index + 1]?.id));
+    section.appendChild(footer);
+  });
+
+  return body.innerHTML;
+}
+
+function createChunkNavButton(
+  document: Document,
+  label: string,
+  targetId?: string,
+  action: "chunk" | "toc" = "chunk",
+): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.className = "chunk-nav-button";
+  button.textContent = label;
+  button.type = "button";
+  button.dataset.chunkNav = action;
+  if (targetId) {
+    button.dataset.targetChunk = targetId;
+  } else if (action === "chunk") {
+    button.disabled = true;
+  }
+  return button;
 }
 
 function wrapUntilNext(
@@ -1469,6 +1514,7 @@ function CourseDetail({
   const [reloadKey, setReloadKey] = useState(0);
   const [version, setVersion] = useState<VersionKey>(DEFAULT_VERSION);
   const [compare, setCompare] = useState(false);
+  const [compact, setCompact] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [popover, setPopover] = useState<KeywordInsight | null>(null);
   const [activeChunkId, setActiveChunkId] = useState("");
@@ -1504,6 +1550,15 @@ function CourseDetail({
     };
   }, [courseId, reloadKey]);
 
+  const scrollToDetailTop = () => {
+    const target = document.querySelector(".source-summary") ?? document.querySelector(".detail-header");
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
   const jumpTo = (anchor?: string) => {
     if (!anchor) return;
     setActiveChunkId(anchor);
@@ -1526,6 +1581,34 @@ function CourseDetail({
     () => anchoredHtmlFromBody(course?.versions?.[version]?.body_md, chunkNavItems),
     [course, chunkNavItems, version],
   );
+  const readableBodyHtml = useMemo(() => htmlWithChunkNavigation(bodyHtml, chunkNavItems), [bodyHtml, chunkNavItems]);
+
+  const handleReadingClick = (event: MouseEvent<HTMLElement>) => {
+    const target = event.target;
+    if (!(target instanceof HTMLElement)) return;
+
+    const navButton = target.closest<HTMLButtonElement>("[data-chunk-nav]");
+    if (navButton) {
+      if (navButton.disabled) return;
+      if (navButton.dataset.chunkNav === "toc") {
+        scrollToDetailTop();
+        return;
+      }
+      jumpTo(navButton.dataset.targetChunk);
+      return;
+    }
+
+    if (!compact) return;
+    const heading = target.closest<HTMLElement>(".long-section h2, .outline-chunk");
+    const section = heading?.closest<HTMLElement>(".long-section[id], .outline-chunk[id]");
+    if (!section?.id) return;
+
+    setCompact(false);
+    setActiveChunkId(section.id);
+    window.requestAnimationFrame(() => {
+      document.getElementById(section.id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  };
 
   useEffect(() => {
     const firstId = chunkNavItems[0]?.id ?? "";
@@ -1555,7 +1638,7 @@ function CourseDetail({
 
     elements.forEach((element) => observer.observe(element));
     return () => observer.disconnect();
-  }, [bodyHtml, chunkNavItems, compare]);
+  }, [readableBodyHtml, chunkNavItems, compare]);
 
   if (error) {
     return (
@@ -1710,23 +1793,26 @@ function CourseDetail({
                   <ChunkMenuList activeId={activeChunkId} course={course} onJump={jumpTo} />
                 </div>
               </details>
+              <button className="tiny-button" onClick={() => setCompact((current) => !current)} type="button">
+                {compact ? "查看完整正文" : "只看段落标题"}
+              </button>
             </div>
           </section>
           {compare ? (
-            <div className="compare-view">
+            <div className="compare-view" onClick={handleReadingClick}>
               <section className="compare-col">
                 <h3>原始转写稿</h3>
                 <pre>{rawText || "后端尚未返回 paragraphs。"}</pre>
               </section>
               <section className="compare-col">
                 <h3>{VERSION_LABELS[version]}</h3>
-                <div className="reading-content" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+                <div className={`reading-content ${compact ? "compact-long" : ""}`} dangerouslySetInnerHTML={{ __html: readableBodyHtml }} />
               </section>
             </div>
           ) : (
-            <div className="reading-body">
+            <div className={`reading-body ${compact ? "compact-long" : ""}`} onClick={handleReadingClick}>
               {firstClassics ? <ClassicalReferenceBlock refItem={firstClassics} onOpen={() => setDrawer({ kind: "classics", item: firstClassics })} /> : null}
-              <div className="reading-content" dangerouslySetInnerHTML={{ __html: bodyHtml }} />
+              <div className="reading-content" dangerouslySetInnerHTML={{ __html: readableBodyHtml }} />
             </div>
           )}
         </article>

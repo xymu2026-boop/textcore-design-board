@@ -1,61 +1,42 @@
-# OUTBOX · Codex · A2.1 详情页三栏骨架
+# OUTBOX · Codex · A2.1b 阅读导航补全
 
 ## 改动范围
 
-- 只改 `apps/web/src/App.tsx` 和 `apps/web/src/styles.css`。
-- 未改 API、schemas、prompts、`docs/prototype/`。
+- 功能代码只改 `apps/web/src/App.tsx` 和 `apps/web/src/styles.css`。
+- 未改 `apps/api`、`textcore`、schemas、prompts、`docs/prototype/`。
 - 未引入前端硬编码业务数据。
+- 未提交 git。
 
-## 三栏结构
+## 只看段落标题 / 查看完整正文
 
-- 详情页主体恢复为三栏 grid：
-  - 左栏：常驻 C 段导航 `ChunkToc`。
-  - 中栏：课程摘要、版本切换、正文阅读区。
-  - 右栏：知识卡片 / 作文素材 / 复核资源入口与容器。
-- `detail-page-container` 调整为 `min(1480px, calc(100% - 48px))`，桌面端给三栏留出稳定宽度。
-- 1180px 以下收窄三栏，1050px 以下退化为单列，避免移动端挤压。
+- 详情页 sticky 控制栏右侧新增 `只看段落标题` / `查看完整正文` 按钮。
+- 默认保持完整正文；点击后给阅读正文容器加 `compact-long`。
+- 紧凑模式隐藏每个 `.long-section` 内除 `h2` 外的内容，并隐藏正文前的旁征博引块，确保正文区只保留分块标题。
+- 紧凑模式下点击任一分块标题，会退出紧凑模式并平滑滚动定位到该分块。
+- 该状态不改变四档正文 tab 的当前选中版本；切换 tab 后继续使用同一套真实 chunk 锚点。
 
-## 章节导航
+## 段间导航
 
-- 左栏每项显示：
-  - C 编号：由真实 `chunks[].chunk_id` 格式化。
-  - 标题：优先从 `global.outline_tree[].chunk_ids` 匹配，否则使用 `primary_type` 标签。
-  - 段落范围/字数：来自 `chunks[].paragraph_range` + `paragraphs[]`，缺失时用 API 版本统计估算。
-- 点击左栏项会滚动到正文对应锚点，并立即高亮当前项。
-- 增加 `IntersectionObserver`，根据当前可见 `.long-section[id]` / `.outline-chunk[id]` 更新左栏和顶部辅助下拉高亮。
-- 为真实 API 正文补锚点：
-  - 如果 `body_md` 已带 chunk id，只补 `.long-section` / `.outline-chunk` class。
-  - 如果没有 id，则按正文 `h2`、outline `li` 或块状内容顺序补齐 chunk id。
-
-## 阅读版式参数
-
-- 正文区 `max-width: 760px`。
-- 正文字号 `18px`，行高 `1.95`。
-- `h2` 约 `30px / 1.35`，段间距约 `21px`。
-- `.long-section` 增加段落分隔、`scroll-margin-top: 150px`，匹配 sticky 工具栏下的定位需求。
-
-## 标题区与真实字段
-
-- 标题格式改为：`课程：{课程名} ｜ 讲师：{讲师}`。
-- 课程名、讲师、课型、原始文件、状态、段落数、处理块数均来自 API 字段。
-- 副标题行使用 `detected_meta.student_group` / `detected_meta.date`，没有字段则不显示。
-- 标题区新增四档字数比例摘要：
-  - `versions[faithful|concise|study|outline].char_count`
-  - 优先显示 API `versions.*.compression`，缺失时才回退到 `char_count / rawChars`。
-- 长标题增加 `overflow-wrap: anywhere` 和 `word-break: break-word`，避免撑破首屏。
+- 在 `anchoredHtmlFromBody()` 生成真实 chunk 锚点后，新增 `htmlWithChunkNavigation()` 对正文 HTML 做结构化增强。
+- 每个已定位到的 chunk section 末尾注入一行：
+  - `上一段`
+  - `回到目录`
+  - `下一段`
+- 按钮不绑定硬编码课程数据，而是从 `buildChunkNavItems(course)` 得到的真实 `chunks[].chunk_id` 顺序生成。
+- 点击逻辑通过阅读区事件委托处理：
+  - `上一段` / `下一段` 调用现有 `jumpTo()`，平滑滚动并更新当前 chunk 高亮。
+  - `回到目录` 平滑滚动到详情页课程摘要 / 顶部目录区域。
+  - 首段的 `上一段` 和末段的 `下一段` 自动 disabled。
+- 样式补齐 `.chunk-footer` / `.chunk-nav-button`，使用浅色圆角按钮和置灰禁用态，对齐 demo 的段间导航布局。
 
 ## 与 demo 仍存差异
 
-- 本步未做旁征博引浮层、复核 hover 气泡、资源联动、原文对照同步，按 INBOX 留给 A2.2/A2.3。
-- 右侧资源区保留现有列表/抽屉入口，没有做按当前 chunk 的资源计数联动。
-- 浏览器视觉验证未执行：当前沙箱拒绝 dev server 监听 `127.0.0.1:5173`，报错 `listen EPERM`。
+- demo 的紧凑模式保留了部分 `chunk-meta`；本次按 A2.1b 验收要求处理为正文区只剩分块标题。
+- `回到目录` 在当前 React 版中定位到课程摘要 / 顶部控制区，而不是 demo hash 版里的 `#chunkToc` 节点；视觉效果仍是回到首屏目录区域。
+- 本步未做旁征博引浮层、复核 hover、资源联动、原文对照同步，按 INBOX 留给 A2.2/A2.3。
 
 ## 验证
 
 - `cd apps/web && npm run check`：通过。
 - `cd apps/web && npm run build`：通过。
-
-## 遗留
-
-- 如真实课程的 `body_md` 未来稳定输出 chunk id，当前前端补锚逻辑仍兼容；如后端输出完全无结构长文本，前端会按内容块顺序补锚，定位粒度会低于 demo。
-- 未提交 git，按要求等待 Claude 审查后统一提交。
+- `cd apps/web && npm run dev`：未能启动浏览器视觉检查，当前沙箱拒绝 dev server 监听 `::1:5173`，报 `listen EPERM`。

@@ -1431,6 +1431,41 @@ a {
   border-bottom: 1px solid rgba(228, 217, 201, 0.72);
 }
 
+.chunk-footer {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 28px;
+  padding-top: 16px;
+  border-top: 1px dashed var(--color-border);
+}
+
+.chunk-nav-button {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  cursor: pointer;
+  font-size: 14px;
+  transition: transform 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.chunk-nav-button:active {
+  transform: translateY(1px);
+}
+
+.chunk-nav-button:disabled {
+  color: var(--color-text-subtle);
+  cursor: default;
+  opacity: 0.42;
+}
+
+.chunk-nav-button:disabled:active {
+  transform: none;
+}
+
 .long-section:last-child {
   margin-bottom: 0;
   border-bottom: 0;
@@ -1444,6 +1479,26 @@ a {
 
 .outline-chunk {
   scroll-margin-top: 150px;
+}
+
+.compact-long > .classical-appreciation-block {
+  display: none;
+}
+
+.compact-long .long-section {
+  padding-bottom: 12px;
+  margin-bottom: 12px;
+}
+
+.compact-long .long-section > :not(h2),
+.compact-long .outline-chunk > :not(strong):not(span) {
+  display: none;
+}
+
+.compact-long .long-section h2 {
+  margin-bottom: 10px;
+  cursor: pointer;
+  font-size: 21px;
 }
 
 .review-mark,
