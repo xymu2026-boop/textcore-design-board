@@ -20,7 +20,7 @@ SCHEMA = {
 def test_valid_json_passes_first_try():
     payload = {"cleaned_text": "老师讲了线索。", "key_points": ["线索=明线+暗线"]}
     client = LLMClient(MockProvider(lambda s, u: json.dumps(payload, ensure_ascii=False)))
-    obj, res = client.complete_json("sys", "user", SCHEMA, stage="S4")
+    obj, res = client.complete_json("sys", "user", SCHEMA, stage="S7")
     assert obj == payload
     assert res.model == "deepseek-v4-pro"
 

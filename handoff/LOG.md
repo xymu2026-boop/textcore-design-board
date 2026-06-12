@@ -27,3 +27,6 @@
 [2026-06-12 22:46:09 CST] CODEX: exam_library 第一轮闭环报告/SQLite/复核队列完成
 [2026-06-12 22:46 +0800] CODEX: A2 chunk级并发 完成
 [2026-06-12 22:50:14 CST] CODEX: exam_library 第一轮总览刷新并生成前端payload样例
+[2026-06-12 22:55:45 CST] CODEX: exam_library 中考古诗文扩展至28条并刷新报告
+[2026-06-12 22:57:39 CST] CODEX: exam_library 2024高考作文6条提升为verified并刷新总览
+[2026-06-12 23:01:12 CST] CODEX: exam_library 2023高考作文提升verified并生成中考作品匹配报告
