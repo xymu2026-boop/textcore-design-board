@@ -1,30 +1,31 @@
-# OUTBOX · Codex · T007 前端高保真还原
+# OUTBOX · Codex · 前端高保真还原（自行浏览）
 
 ## 完成范围
 
-- 只修改了 `apps/web/src/App.tsx` 和 `apps/web/src/styles.css`。
-- 工作台、课稿库、课程详情、知识资产继续使用现有 API 数据流与路由。
-- 详情页按 `docs/prototype` 方向补齐了课程摘要卡、资源按钮、版本分段、章节目录、固定目录、右侧资源卡、抽屉资源面板、原文对照、古文旁征博引块、复核标记样式。
-- 导出弹窗、抽屉、资产卡片、阅读正文排版和响应式布局增加了原型 CSS 设计语言覆盖层。
+- 代码侧只修改了 `apps/web/src/App.tsx` 和 `apps/web/src/styles.css`；另按交接协议更新了 `handoff/OUTBOX_CODEX_UI.md` 和 `handoff/LOG.md`。未改 `docs/prototype/`、后端、Schema、prompt 或 API 契约。
+- 课程详情页按黄金 demo 重新拉齐阅读版式：正文主容器恢复到约 1200px 宽，正文阅读区约 940px，隐藏挤压正文的常驻左目录/右资源栏，资源改为摘要卡按钮 + 抽屉承载。
+- 课程摘要卡重新分层：标题、摘要、关键词、知识点/写作素材/待复核/旁征博引入口放在同一卡片里，避免真实长标题把首屏撑乱。
+- 四档版本 tab 保持 `faithful`/`concise`/`study`/`outline` key 不变，默认仍随后端返回；保留字数与压缩比例。
+- 新增右侧快速滚动 rail，支持回到首屏、到底部、拖拽快速浏览和分段点跳转，改善几万字长文阅读。
+- 古文旁征博引块保持原文优先展示，译文/字词与赏析改为折叠块，减少首屏阅读干扰。
+- 课程详情增加“返回课稿库 / 上一篇 / 下一篇”视觉入口，其中上一篇/下一篇当前先回课稿库，待真实相邻课程关系接入后可再补逻辑。
 
-## CSS 移植方式
+## 浏览器自检
 
-- 保留现有样式文件，在末尾增加 prototype fidelity layer，集中移植 `docs/prototype/styles.css` 中的颜色、间距、圆角、阴影、阅读正文、章节目录、资源按钮、弹窗、抽屉、古文引用块和复核标记样式。
-- React 组件侧尽量对齐原型 className：`overview-card-head`、`overview-actions`、`resource-button`、`process-meta`、`chapter-menu`、`classical-appreciation-block`、`review-mark` 等。
-- 未修改 `docs/prototype/`，仅只读参考。
-
-## 与原型仍存差异
-
-- React 版仍绑定真实后端数据，无法完全复刻原型内置样例的分段 id、快速滚动 rail、上一篇/下一篇等纯 demo 行为。
-- 当前详情页保留右侧资源卡片栏，同时新增原型式资源按钮和抽屉面板；视觉更接近原型，但不是逐 DOM 复制。
-- 当前执行环境无法启动 dev server 做截图验收：`npm run dev -- --host 127.0.0.1` 报 `listen EPERM: operation not permitted 127.0.0.1:5173`。Browser 插件也返回 `iab` 不可用。
+- 对照 demo `http://127.0.0.1:5180/prototype/#/courses/sample-classical` 做了尺寸检查：demo 与 React 的阅读面板均为左约 33px、宽约 1200px，摘要卡左约 56px、宽约 1154px，正文宽约 940px。
+- 打开真实课程 `http://localhost:5173/courses/course_2026_652f24cc` 验证数据正常：四档版本可见，知识点 20、写作素材 10、旁征博引 1、待复核 24。
+- 验证知识点抽屉可打开，抽屉内渲染 20 个资源项。
+- 验证“对照原文”可切换为双栏对照。
+- 验证“导出 Word”弹窗可打开，导出勾选项包含课程摘要、四档版本、知识点、写作素材、旁征博引资料和待复核。
+- 验证课稿库列表页可打开并渲染真实课程行，知识资产库可打开并渲染资产卡片。
 
 ## 验收结果
 
 - `cd apps/web && npm run check`：通过。
 - `cd apps/web && npm run build`：通过。
-- 本地浏览器/dev server 渲染检查：受当前环境端口绑定和 Browser 实例不可用限制，未完成截图级验证。
 
-## 遗留
+## 与 demo 仍存差异
 
-- 建议 Claude Code 在可正常启动 Vite 的本机环境打开 `http://localhost:5173`，重点复核详情页宽屏/窄屏阅读区、右侧资源栏、章节目录下拉和抽屉宽度。
+- React 版绑定真实后端数据，真实课程标题和摘要明显长于 demo 样例，因此首屏摘要卡高度略高，这是数据差异。
+- 左侧 C01-C09 常驻目录没有照搬为常驻侧栏，而是采用章节目录下拉 + 右侧快速滚动 rail；这是为了避免真实长文阅读区被压窄。
+- 上一篇/下一篇目前是占位式视觉入口，后续需要课程相邻关系或列表上下文后再实现真实跳转。

@@ -12,7 +12,7 @@
 - **第六步 确定性流水线 S0–S3（Codex T004）**：✅ 完成。醉叟传 179段→17块，文言文span保留。提交 `8a5603f`
 - **第七步 古文参考服务（Claude）**：✅ 完成。chinese-gushiwen 1万篇建库 + 三级匹配 + 错字diff。提交 `f5c1356`
 - **第八步 LLM 流水线 S4–S8**：✅ 完成。真跑醉叟传 55s：四档 9000/3800/1100/600字 + 20卡片 + 10素材 + 古文命中《关雎》 + 24复核。提交 2aabf9c。🏁 M2 真实样本端到端达成
-- **第九步 质检+Word导出+回归**：⏭️ 下一步（Codex）
+- **第九步 质检+Word导出+回归**：✅ 完成。真实 docx 导出含《关雎》+译文+复核，回归不变式套件。提交 0618a05。make check ✓ 24 passed
 - **Phase 7.5 真实端到端验收**：⏭️ 你的重点验收门
 - 遗留：前端 History API 路由（待补 react-router-dom）；知识资产页待后端资产 API；古文全量库在 data/(gitignore)，重建跑 build_db
 - make check ✓ 15 passed
