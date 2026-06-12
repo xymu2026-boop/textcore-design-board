@@ -42,6 +42,18 @@ type DrawerState =
   | { kind: "resource-panel"; tab: "cards" | "materials" | "review"; course: CourseState }
   | null;
 
+type ClassicsPopoverState = {
+  item: ClassicsRef;
+  left: number;
+  top: number;
+  width: number;
+} | null;
+
+type TextMatch = {
+  text: string;
+  index: number;
+};
+
 type UploadState = {
   fileName?: string;
   courseId?: string;
@@ -288,6 +300,141 @@ function htmlWithChunkNavigation(html: string, navItems: ChunkNavItem[]): string
   });
 
   return body.innerHTML;
+}
+
+function interactiveHtmlFromBody(html: string, course: CourseState, reviewFlags: ReviewFlag[]): string {
+  if (!html || typeof DOMParser === "undefined") return html;
+
+  const document = new DOMParser().parseFromString(html, "text/html");
+  const body = document.body;
+  wrapTextMatches(body, buildClassicsTextMatches(course.classics_refs ?? []), (doc, match, text) => {
+    const button = doc.createElement("button");
+    button.className = "classics-anchor";
+    button.type = "button";
+    button.dataset.classicsIndex = String(match.index);
+    button.textContent = text;
+    return button;
+  });
+  wrapTextMatches(body, buildReviewTextMatches(reviewFlags), (doc, match, text) => {
+    const flag = reviewFlags[match.index];
+    const span = doc.createElement("span");
+    span.className = "correction-mark review-inline";
+    span.tabIndex = 0;
+    span.dataset.reviewIndex = String(match.index);
+    span.textContent = text;
+
+    const sup = doc.createElement("sup");
+    sup.textContent = flag.suggestion ? `建议:${flag.suggestion}` : "待复核";
+    span.appendChild(sup);
+
+    const tooltip = doc.createElement("span");
+    tooltip.className = "correction-tooltip";
+    tooltip.textContent = [flag.reason, flag.suggestion ? `建议：${flag.suggestion}` : ""].filter(Boolean).join("；");
+    span.appendChild(tooltip);
+    return span;
+  });
+
+  return body.innerHTML;
+}
+
+function wrapTextMatches(
+  root: HTMLElement,
+  matches: TextMatch[],
+  createNode: (document: Document, match: TextMatch, text: string) => HTMLElement,
+) {
+  if (!matches.length) return;
+
+  const document = root.ownerDocument;
+  const textNodes: Text[] = [];
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      const parent = node.parentElement;
+      if (!parent || !node.nodeValue?.trim()) return NodeFilter.FILTER_REJECT;
+      if (parent.closest("button,a,script,style,[data-classics-index],[data-review-index],.correction-tooltip")) {
+        return NodeFilter.FILTER_REJECT;
+      }
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+
+  while (walker.nextNode()) {
+    if (walker.currentNode instanceof Text) textNodes.push(walker.currentNode);
+  }
+
+  textNodes.forEach((node) => {
+    const value = node.nodeValue ?? "";
+    const fragment = document.createDocumentFragment();
+    let cursor = 0;
+    let changed = false;
+
+    while (cursor < value.length) {
+      const next = findNextTextMatch(value, cursor, matches);
+      if (!next) {
+        fragment.appendChild(document.createTextNode(value.slice(cursor)));
+        break;
+      }
+
+      if (next.start > cursor) {
+        fragment.appendChild(document.createTextNode(value.slice(cursor, next.start)));
+      }
+
+      const matchedText = value.slice(next.start, next.start + next.match.text.length);
+      fragment.appendChild(createNode(document, next.match, matchedText));
+      cursor = next.start + next.match.text.length;
+      changed = true;
+    }
+
+    if (changed) node.parentNode?.replaceChild(fragment, node);
+  });
+}
+
+function findNextTextMatch(
+  value: string,
+  cursor: number,
+  matches: TextMatch[],
+): { start: number; match: TextMatch } | null {
+  let best: { start: number; match: TextMatch } | null = null;
+  matches.forEach((match) => {
+    const start = value.indexOf(match.text, cursor);
+    if (start < 0) return;
+    if (!best || start < best.start || (start === best.start && match.text.length > best.match.text.length)) {
+      best = { start, match };
+    }
+  });
+  return best;
+}
+
+function buildClassicsTextMatches(refs: ClassicsRef[]): TextMatch[] {
+  const seen = new Set<string>();
+  const matches: TextMatch[] = [];
+  refs.forEach((ref, index) => {
+    const labels = [
+      ref.title,
+      ref.title && /^《.*》$/.test(ref.title) ? ref.title.replace(/[《》]/g, "") : ref.title ? `《${ref.title.replace(/[《》]/g, "")}》` : "",
+      ref.writer && ref.writer !== "佚名" ? ref.writer : "",
+    ];
+    labels.forEach((label) => {
+      const text = compactText(label, "");
+      const key = `${index}:${text}`;
+      if (text.length < 2 || seen.has(key)) return;
+      seen.add(key);
+      matches.push({ text, index });
+    });
+  });
+  return matches.sort((a, b) => b.text.length - a.text.length);
+}
+
+function buildReviewTextMatches(flags: ReviewFlag[]): TextMatch[] {
+  const seen = new Set<string>();
+  return flags
+    .map((flag, index) => ({ text: compactText(flag.text, ""), index }))
+    .filter((match) => {
+      const key = `${match.index}:${match.text}`;
+      if (match.text.length < 2 || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => b.text.length - a.text.length);
 }
 
 function createChunkNavButton(
@@ -642,6 +789,33 @@ function paragraphsForChunk(course: CourseState, chunkId: string): Paragraph[] {
   return paragraphs.filter((paragraph, index) => {
     const order = paragraph.source_order || paragraphNumber(paragraph.pid) || index + 1;
     return order >= minOrder && order <= maxOrder;
+  });
+}
+
+function chunkIdForPid(course: CourseState, pid: string | undefined): string | undefined {
+  if (!pid) return undefined;
+  const paragraph = course.paragraphs?.find((item) => item.pid === pid);
+  const order = paragraph?.source_order ?? paragraphNumber(pid);
+  if (!order) return undefined;
+
+  return course.chunks?.find((chunk) => {
+    const startOrder = course.paragraphs?.find((item) => item.pid === chunk.paragraph_range[0])?.source_order ?? paragraphNumber(chunk.paragraph_range[0]) ?? 0;
+    const endOrder = course.paragraphs?.find((item) => item.pid === chunk.paragraph_range[1])?.source_order ?? paragraphNumber(chunk.paragraph_range[1]) ?? startOrder;
+    return order >= Math.min(startOrder, endOrder) && order <= Math.max(startOrder, endOrder);
+  })?.chunk_id;
+}
+
+function chunkIdForReviewFlag(course: CourseState, flag: ReviewFlag): string | undefined {
+  return flag.chunk_id ?? chunkIdForPid(course, flag.pid);
+}
+
+function findClassicsRefForLabel(course: CourseState, label: string): ClassicsRef | undefined {
+  const normalized = normalizeTitle(label);
+  if (!normalized) return undefined;
+  return (course.classics_refs ?? []).find((ref) => {
+    const title = normalizeTitle(ref.title);
+    const writer = normalizeTitle(ref.writer);
+    return title === normalized || writer === normalized;
   });
 }
 
@@ -1115,14 +1289,14 @@ function VersionTabs({
   );
 }
 
-function ReviewMark({ flag }: { flag: ReviewFlag }) {
+function ReviewMark({ flag, onLocate }: { flag: ReviewFlag; onLocate?: () => void }) {
   return (
-    <div className="review-mark-block">
+    <button className={`review-mark-block ${onLocate ? "clickable" : ""}`} disabled={!onLocate} onClick={onLocate} type="button">
       <strong>{flag.text}</strong>
       {flag.suggestion ? <span className="diff-mark">建议：{flag.suggestion}</span> : null}
       <p>{flag.reason}</p>
       <small>{[flag.pid, flag.chunk_id, flag.severity].filter(Boolean).join(" · ")}</small>
-    </div>
+    </button>
   );
 }
 
@@ -1278,6 +1452,46 @@ function InsightPopover({ insight, onOpen }: { insight: KeywordInsight; onOpen: 
   );
 }
 
+function ClassicsPopover({
+  popover,
+  onOpen,
+  onClose,
+}: {
+  popover: ClassicsPopoverState;
+  onOpen: (item: ClassicsRef) => void;
+  onClose: () => void;
+}) {
+  if (!popover) return null;
+  const refItem = popover.item;
+  const source = refItem.ref_url ?? refItem.source ?? "来源待后端返回";
+
+  return (
+    <aside className="classics-popover show" style={{ left: popover.left, top: popover.top, width: popover.width }}>
+      <button aria-label="关闭旁征博引浮层" className="popover-close" onClick={onClose} type="button">
+        ×
+      </button>
+      <p className="popover-kicker">{refItem.writer ? "作者/作品旁征博引" : "作品旁征博引"}</p>
+      <h3>{refItem.title ?? refItem.writer ?? "古文资料"}</h3>
+      {refItem.matched ? null : <p className="unmatched-note">未匹配权威原文</p>}
+      <p className="popover-preview">{compactText(refItem.canonical_text, "暂无原文")}</p>
+      <InfoBlock title="译文">{refItem.translation}</InfoBlock>
+      <InfoBlock title="注释">{refItem.remark}</InfoBlock>
+      <InfoBlock title="赏析">{refItem.shangxi}</InfoBlock>
+      <footer className="popover-actions">
+        <span className="source-stamp static"><i /> {source}</span>
+        <button className="tiny-button" onClick={() => onOpen(refItem)} type="button">
+          展开详案
+        </button>
+        {refItem.ref_url ? (
+          <a className="tiny-button" href={refItem.ref_url} rel="noreferrer" target="_blank">
+            查看全文
+          </a>
+        ) : null}
+      </footer>
+    </aside>
+  );
+}
+
 function InsightDrawer({ insight, onOpen }: { insight: KeywordInsight; onOpen: (drawer: DrawerState) => void }) {
   return (
     <div className="drawer-body">
@@ -1320,6 +1534,7 @@ function ClassicsDrawer({ refItem }: { refItem: ClassicsRef }) {
       <p className="muted">
         {[refItem.dynasty, refItem.writer, refItem.source].filter(Boolean).join(" · ") || "参考来源待后端返回"}
       </p>
+      {!refItem.matched ? <p className="unmatched-note">未匹配权威原文</p> : null}
       <section className="classical-appreciation-block">
         <h3>权威原文</h3>
         <p className="classical-original">{refItem.canonical_text ?? "暂无 canonical_text"}</p>
@@ -1356,14 +1571,32 @@ function InfoBlock({ title, children }: { title: string; children?: ReactNode })
   );
 }
 
+function SourceChunkLinks({ chunks, onJump }: { chunks?: string[]; onJump?: (chunkId: string) => void }) {
+  if (!chunks?.length) return null;
+  return (
+    <section className="source-chunk-links">
+      <h3>关联正文</h3>
+      <div>
+        {chunks.map((chunkId) => (
+          <button className="tiny-button" key={chunkId} onClick={() => onJump?.(chunkId)} type="button">
+            {chunkLabel(chunkId)}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 function ResourceDrawer({
   drawer,
   onClose,
   onOpen,
+  onJump,
 }: {
   drawer: DrawerState;
   onClose: () => void;
   onOpen: (drawer: DrawerState) => void;
+  onJump: (chunkId: string) => void;
 }) {
   if (!drawer) return null;
 
@@ -1386,6 +1619,7 @@ function ResourceDrawer({
           <p>{drawer.item.summary ?? "暂无详解"}</p>
           <ul>{(drawer.item.core_points ?? []).map((point) => <li key={point}>{point}</li>)}</ul>
           <InfoBlock title="课堂例子">{drawer.item.example}</InfoBlock>
+          <SourceChunkLinks chunks={drawer.item.source_chunks} onJump={onJump} />
         </div>
       ) : null}
       {drawer.kind === "material" ? (
@@ -1396,10 +1630,11 @@ function ResourceDrawer({
           <InfoBlock title="可用表达">{drawer.item.usable_expression}</InfoBlock>
           <InfoBlock title="老师点评">{drawer.item.teacher_comment}</InfoBlock>
           <InfoBlock title="使用建议">{drawer.item.usage_suggestion}</InfoBlock>
+          <SourceChunkLinks chunks={drawer.item.source_chunks} onJump={onJump} />
         </div>
       ) : null}
       {drawer.kind === "resource-panel" ? (
-        <ResourcePanelDrawer course={drawer.course} tab={drawer.tab} onOpen={onOpen} />
+        <ResourcePanelDrawer course={drawer.course} tab={drawer.tab} onJump={onJump} onOpen={onOpen} />
       ) : null}
     </aside>
   );
@@ -1408,10 +1643,12 @@ function ResourceDrawer({
 function ResourcePanelDrawer({
   course,
   tab,
+  onJump,
   onOpen,
 }: {
   course: CourseState;
   tab: "cards" | "materials" | "review";
+  onJump: (chunkId: string) => void;
   onOpen: (drawer: DrawerState) => void;
 }) {
   const reviewFlags = openReviewFlags(course);
@@ -1429,6 +1666,7 @@ function ResourcePanelDrawer({
                   <h4>{card.title}</h4>
                   <p>{card.summary ?? "暂无摘要"}</p>
                   <span className="tag">{card.type}</span>
+                  {card.source_chunks?.length ? <span className="source-chunk-meta">关联 {card.source_chunks.map(chunkLabel).join("、")}</span> : null}
                 </div>
               </button>
             ))
@@ -1445,12 +1683,19 @@ function ResourcePanelDrawer({
                   <h4>{material.title}</h4>
                   <p>{material.usage_suggestion ?? material.usable_expression ?? "暂无素材说明"}</p>
                   <span className="tag">{material.theme?.join(" / ") ?? "作文素材"}</span>
+                  {material.source_chunks?.length ? <span className="source-chunk-meta">关联 {material.source_chunks.map(chunkLabel).join("、")}</span> : null}
                 </div>
               </button>
             ))
           : null}
         {tab === "review"
-          ? reviewFlags.map((flag) => <ReviewMark flag={flag} key={flag.flag_id ?? `${flag.text}-${flag.reason}`} />)
+          ? reviewFlags.map((flag) => (
+              <ReviewMark
+                flag={flag}
+                key={flag.flag_id ?? `${flag.text}-${flag.reason}`}
+                onLocate={chunkIdForReviewFlag(course, flag) ? () => onJump(chunkIdForReviewFlag(course, flag) ?? "") : undefined}
+              />
+            ))
           : null}
         {(tab === "cards" && !(course.knowledge_cards ?? []).length) ||
         (tab === "materials" && !(course.writing_materials ?? []).length) ||
@@ -1582,6 +1827,8 @@ function CourseDetail({
   const [compact, setCompact] = useState(false);
   const [drawer, setDrawer] = useState<DrawerState>(null);
   const [popover, setPopover] = useState<KeywordInsight | null>(null);
+  const [classicsPopover, setClassicsPopover] = useState<ClassicsPopoverState>(null);
+  const [sideTab, setSideTab] = useState<"cards" | "materials" | "review">("cards");
   const [activeChunkId, setActiveChunkId] = useState("");
   const pendingScrollChunkRef = useRef<string | null>(null);
 
@@ -1628,6 +1875,8 @@ function CourseDetail({
   const jumpTo = (anchor?: string) => {
     if (!anchor) return;
     setActiveChunkId(anchor);
+    setDrawer(null);
+    setClassicsPopover(null);
     if (compare) {
       document.querySelector(".compare-view")?.scrollIntoView({ behavior: "smooth", block: "start" });
       return;
@@ -1646,15 +1895,48 @@ function CourseDetail({
     }
   };
 
+  const locateReviewFlag = (flag: ReviewFlag, index: number) => {
+    if (!course) return;
+    setDrawer(null);
+    setClassicsPopover(null);
+    const marker = document.querySelector<HTMLElement>(`[data-review-index="${index}"]`);
+    if (marker) {
+      marker.scrollIntoView({ behavior: "smooth", block: "center" });
+      marker.classList.add("pulse-target");
+      window.setTimeout(() => marker.classList.remove("pulse-target"), 1300);
+      return;
+    }
+    jumpTo(chunkIdForReviewFlag(course, flag));
+  };
+
+  const openClassicsPopover = (element: HTMLElement, item: ClassicsRef) => {
+    const rect = element.getBoundingClientRect();
+    const width = Math.min(380, window.innerWidth - 28);
+    setPopover(null);
+    setClassicsPopover({
+      item,
+      width,
+      left: Math.min(Math.max(14, rect.left), window.innerWidth - width - 14),
+      top: Math.min(rect.bottom + 10, window.innerHeight - 260),
+    });
+  };
+
   const chunkNavItems = useMemo(() => (course ? buildChunkNavItems(course) : []), [course]);
   const bodyHtml = useMemo(
     () => anchoredHtmlFromBody(course?.versions?.[version]?.body_md, chunkNavItems),
     [course, chunkNavItems, version],
   );
-  const readableBodyHtml = useMemo(() => htmlWithChunkNavigation(bodyHtml, chunkNavItems), [bodyHtml, chunkNavItems]);
+  const readableBodyHtml = useMemo(() => {
+    if (!course) return bodyHtml;
+    return interactiveHtmlFromBody(htmlWithChunkNavigation(bodyHtml, chunkNavItems), course, openReviewFlags(course));
+  }, [bodyHtml, chunkNavItems, course]);
   const currentChunkId = activeChunkId || chunkNavItems[0]?.id || "";
   const currentChunk = chunkNavItems.find((item) => item.id === currentChunkId);
   const compareRightHtml = useMemo(() => htmlForChunk(bodyHtml, currentChunkId), [bodyHtml, currentChunkId]);
+  const interactiveCompareRightHtml = useMemo(() => {
+    if (!course) return compareRightHtml;
+    return interactiveHtmlFromBody(compareRightHtml, course, openReviewFlags(course));
+  }, [compareRightHtml, course]);
   const compareParagraphs = useMemo(
     () => (course && currentChunkId ? paragraphsForChunk(course, currentChunkId) : []),
     [course, currentChunkId],
@@ -1681,6 +1963,13 @@ function CourseDetail({
         return;
       }
       jumpTo(navButton.dataset.targetChunk);
+      return;
+    }
+
+    const classicsAnchor = target.closest<HTMLElement>("[data-classics-index]");
+    if (classicsAnchor && course?.classics_refs) {
+      const refItem = course.classics_refs[Number(classicsAnchor.dataset.classicsIndex)];
+      if (refItem) openClassicsPopover(classicsAnchor, refItem);
       return;
     }
 
@@ -1753,13 +2042,13 @@ function CourseDetail({
 
   const rawChars = courseRawCharCount(course);
   const reviewFlags = openReviewFlags(course);
-  const firstClassics = course.classics_refs?.find((item) => item.matched) ?? null;
+  const firstClassics = course.classics_refs?.[0] ?? null;
   const keywordInsights = buildKeywordInsights(course, firstClassics);
   const resourceCounts = {
     cards: course.knowledge_cards?.length ?? 0,
     materials: course.writing_materials?.length ?? 0,
     review: reviewFlags.length,
-    classics: course.classics_refs?.filter((item) => item.matched).length ?? 0,
+    classics: course.classics_refs?.length ?? 0,
   };
   const isProcessing = course.status === "created" || course.status === "processing";
   const isFailed = course.status === "failed";
@@ -1852,7 +2141,15 @@ function CourseDetail({
                   <button
                     className={`keyword-chip ${insight.kind === "author" || insight.kind === "work" ? "classics-keyword" : ""}`}
                     key={insight.id}
-                    onClick={() => setPopover(insight)}
+                    onClick={(event) => {
+                      const refItem = findClassicsRefForLabel(course, insight.label);
+                      if (refItem && (insight.kind === "author" || insight.kind === "work")) {
+                        openClassicsPopover(event.currentTarget, refItem);
+                        return;
+                      }
+                      setClassicsPopover(null);
+                      setPopover(insight);
+                    }}
                     type="button"
                   >
                     {insight.label}
@@ -1904,7 +2201,7 @@ function CourseDetail({
                   当前整理版｜{VERSION_LABELS[version]}
                 </h3>
                 <p className="muted">当前只对照正在阅读的正文分段。</p>
-                <div className={`reading-content ${compact ? "compact-long" : ""}`} dangerouslySetInnerHTML={{ __html: compareRightHtml }} />
+                <div className={`reading-content ${compact ? "compact-long" : ""}`} dangerouslySetInnerHTML={{ __html: interactiveCompareRightHtml }} />
               </section>
             </div>
           ) : (
@@ -1918,14 +2215,16 @@ function CourseDetail({
 
         <aside className="side-card detail-side">
           <div className="side-tabs">
-            <button className="active" type="button">知识卡片</button>
-            <button type="button">作文素材</button>
-            <button type="button">复核</button>
+            <button className={sideTab === "cards" ? "active" : ""} onClick={() => setSideTab("cards")} type="button">知识卡片</button>
+            <button className={sideTab === "materials" ? "active" : ""} onClick={() => setSideTab("materials")} type="button">作文素材</button>
+            <button className={sideTab === "review" ? "active" : ""} onClick={() => setSideTab("review")} type="button">复核</button>
           </div>
           <ResourceList
+            activeTab={sideTab}
             cards={course.knowledge_cards ?? []}
             classics={course.classics_refs ?? []}
             materials={course.writing_materials ?? []}
+            onLocateReview={locateReviewFlag}
             onOpen={setDrawer}
             reviewFlags={reviewFlags}
           />
@@ -1941,7 +2240,15 @@ function CourseDetail({
           }}
         />
       ) : null}
-      <ResourceDrawer drawer={drawer} onClose={() => setDrawer(null)} onOpen={setDrawer} />
+      <ClassicsPopover
+        popover={classicsPopover}
+        onClose={() => setClassicsPopover(null)}
+        onOpen={(item) => {
+          setDrawer({ kind: "classics", item });
+          setClassicsPopover(null);
+        }}
+      />
+      <ResourceDrawer drawer={drawer} onClose={() => setDrawer(null)} onJump={jumpTo} onOpen={setDrawer} />
     </section>
   );
 }
@@ -1989,54 +2296,77 @@ function ClassicalReferenceBlock({ refItem, onOpen }: { refItem: ClassicsRef; on
 }
 
 function ResourceList({
+  activeTab,
   cards,
   materials,
   reviewFlags,
   classics,
+  onLocateReview,
   onOpen,
 }: {
+  activeTab: "cards" | "materials" | "review";
   cards: KnowledgeCard[];
   materials: WritingMaterial[];
   reviewFlags: ReviewFlag[];
   classics: ClassicsRef[];
+  onLocateReview: (flag: ReviewFlag, index: number) => void;
   onOpen: (drawer: DrawerState) => void;
 }) {
+  const hasCards = cards.length + classics.length > 0;
+  const hasMaterials = materials.length > 0;
+  const hasReviewFlags = reviewFlags.length > 0;
+
   return (
     <div className="mini-list">
-      {cards.slice(0, 4).map((card) => (
-        <button className="mini-item" key={card.card_id} onClick={() => onOpen({ kind: "card", item: card })} type="button">
-          <h4>{card.title}</h4>
-          <p>{card.summary ?? "暂无摘要"}</p>
-        </button>
-      ))}
-      {materials.slice(0, 3).map((material) => (
-        <button
-          className="mini-item"
-          key={material.material_id}
-          onClick={() => onOpen({ kind: "material", item: material })}
-          type="button"
-        >
-          <h4>{material.title}</h4>
-          <p>{material.usage_suggestion ?? material.usable_expression ?? "暂无素材说明"}</p>
-        </button>
-      ))}
-      {classics.slice(0, 2).map((item) => (
-        <button
-          className="mini-item"
-          key={item.ref_id ?? `${item.chunk_id}-${item.title ?? ""}`}
-          onClick={() => onOpen({ kind: "classics", item })}
-          type="button"
-        >
-          <h4>{item.title ?? "古文资料"}</h4>
-          <p>{item.canonical_text ?? item.translation ?? "旁征博引资料"}</p>
-        </button>
-      ))}
-      {reviewFlags.slice(0, 4).map((flag) => (
-        <ReviewMark flag={flag} key={flag.flag_id ?? `${flag.text}-${flag.reason}`} />
-      ))}
-      {cards.length + materials.length + reviewFlags.length + classics.length === 0 ? (
-        <p className="muted">后端尚未返回卡片、素材或复核标记。</p>
-      ) : null}
+      {activeTab === "cards"
+        ? cards.slice(0, 5).map((card) => (
+            <button className="mini-item" key={card.card_id} onClick={() => onOpen({ kind: "card", item: card })} type="button">
+              <h4>{card.title}</h4>
+              <p>{card.summary ?? "暂无摘要"}</p>
+              {card.source_chunks?.length ? <span className="source-chunk-meta">关联 {card.source_chunks.map(chunkLabel).join("、")}</span> : null}
+            </button>
+          ))
+        : null}
+      {activeTab === "cards"
+        ? classics.slice(0, 3).map((item) => (
+            <button
+              className="mini-item classics-mini-item"
+              key={item.ref_id ?? `${item.chunk_id}-${item.title ?? ""}`}
+              onClick={() => onOpen({ kind: "classics", item })}
+              type="button"
+            >
+              <h4>{item.title ?? item.writer ?? "古文资料"}</h4>
+              <p>{item.matched ? (item.canonical_text ?? item.translation ?? "旁征博引资料") : "未匹配权威原文"}</p>
+              <span className="source-chunk-meta">{item.chunk_id ? `关联 ${chunkLabel(item.chunk_id)}` : "旁征博引"}</span>
+            </button>
+          ))
+        : null}
+      {activeTab === "materials"
+        ? materials.slice(0, 6).map((material) => (
+            <button
+              className="mini-item"
+              key={material.material_id}
+              onClick={() => onOpen({ kind: "material", item: material })}
+              type="button"
+            >
+              <h4>{material.title}</h4>
+              <p>{material.usage_suggestion ?? material.usable_expression ?? "暂无素材说明"}</p>
+              {material.source_chunks?.length ? <span className="source-chunk-meta">关联 {material.source_chunks.map(chunkLabel).join("、")}</span> : null}
+            </button>
+          ))
+        : null}
+      {activeTab === "review"
+        ? reviewFlags.slice(0, 8).map((flag, index) => (
+            <ReviewMark
+              flag={flag}
+              key={flag.flag_id ?? `${flag.text}-${flag.reason}`}
+              onLocate={flag.pid || flag.chunk_id ? () => onLocateReview(flag, index) : undefined}
+            />
+          ))
+        : null}
+      {activeTab === "cards" && !hasCards ? <p className="muted">后端尚未返回知识卡片或旁征博引资料。</p> : null}
+      {activeTab === "materials" && !hasMaterials ? <p className="muted">后端尚未返回作文素材。</p> : null}
+      {activeTab === "review" && !hasReviewFlags ? <p className="muted">后端尚未返回待复核项。</p> : null}
     </div>
   );
 }

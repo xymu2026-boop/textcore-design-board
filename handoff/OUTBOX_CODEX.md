@@ -1,51 +1,69 @@
-# OUTBOX · Codex · A2.2 版本切换 + 原文对照分块同步
+# OUTBOX · Codex · A2.3 资源联动 + 旁征博引浮层
 
 ## 改动范围
 
 - 功能代码只改 `apps/web/src/App.tsx` 和 `apps/web/src/styles.css`。
 - 未改 `apps/api`、`textcore`、schemas、prompts、`docs/prototype/`。
-- 未引入硬编码业务数据。
+- 未引入硬编码业务数据；交互全部来自真实 API 字段。
 - 未提交 git。
 
-## 四档版本切换保位
+## 旁征博引浮层
 
-- 详情页版本切换改为 `handleVersionChange()`，切换前记录当前 `activeChunkId`。
-- 新版本正文渲染完成后，通过 `pendingScrollChunkRef` 定位回同一 C 段，避免每次切 tab 回到顶部。
-- 左侧 C 段导航、顶部章节菜单、正文段间 `上一段` / `下一段` 继续共用同一个 `activeChunkId`。
-- 对 chunk 锚点生成做了补强：若正文没有原生 `id=chunk_id`，优先按已有 `li` / `h2` 对齐；若版本正文的标题数少于 chunk 数，则按正文 DOM 子节点顺序近似分配到真实 chunk id，保证导航和保位仍可用。
+- 在详情页正文 HTML 渲染后，用 `course.classics_refs[]` 自动扫描作品篇名和作者：
+  - `title`
+  - 去书名号后的 `title`
+  - 带书名号的 `title`
+  - 非“佚名”的 `writer`
+- 匹配到的正文文本会被包成 `.classics-anchor` 按钮；课程摘要里的作品/作者标签也走同一浮层。
+- 点击后打开锚点附近浮层，展示：
+  - `canonical_text`
+  - `translation`
+  - `remark`
+  - `shangxi`
+  - `source` / `ref_url`
+  - `matched=false` 时显示“未匹配权威原文”
+- 浮层提供“展开详案”，进入右侧抽屉；有 `ref_url` 时同时显示“查看全文”外链。
+- 详情页正文上方仍保留旁征博引卡片，使用首条 `classics_refs[0]`，不再只统计 matched 项。
 
-## 原文对照分块同步
+## 复核标记微交互
 
-- 对照视图不再展示整篇原文或整篇当前版本。
-- 左栏使用真实 API 字段：
-  - `chunks[].chunk_id`
-  - `chunks[].paragraph_range`
-  - `paragraphs[].pid`
-  - `paragraphs[].source_order`
-  - `paragraphs[].speaker`
-  - `paragraphs[].ts`
-  - `paragraphs[].text`
-- 左栏按当前 C 段的 `paragraph_range` 从 `paragraphs` 中筛出同段原始转写稿。
-- 右栏使用当前选中版本的 `versions[version].body_md`，先转换/补齐为 chunk 锚点正文，再用当前 `activeChunkId` 只截取同一 C 段 HTML。
-- 点击左侧章节栏、顶部章节菜单、段间导航时，正常阅读和对照视图都更新同一个 `activeChunkId`，左右栏同步切到同一块。
-- 退出对照后回到正常阅读，当前版本和当前 C 段状态保留。
+- 正文 HTML 渲染后，用开放状态的 `review_flags[]` 自动扫描 `text`。
+- 匹配文本会被包成灰色低干扰 `.review-inline` 标记：
+  - 点线下划线
+  - 括注式 `sup` 显示 `suggestion` 或“待复核”
+  - hover/focus 小气泡展示 `reason` 和 `suggestion`
+- 右侧“复核”tab 的列表项可点击定位：
+  - 优先滚动到正文中对应 `data-review-index` 标记，并短暂高亮
+  - 找不到正文具体标记时，回退到 `chunk_id`
+  - 没有 `chunk_id` 时用 `pid` 反查 `chunks[].paragraph_range`
 
-## 需要后端补字段
+## 资源联动
 
-- 当前 schema 只有 `versions[version].body_md` 整体正文，没有每个版本的显式 chunk 分节结构。
-- 对于已经按 chunk 分节或标题数量与 chunk 数一致的版本，前端可精确截取同 C 段。
-- 对于正文没有 chunk 锚点、且标题数量少于 chunk 数的版本，前端只能按 DOM 顺序近似分配。若要完全精确，需要后端补充类似：
-  - `versions[version].chunks[] = { chunk_id, body_md }`
-  - 或在 `versions[version].body_md` 内稳定输出 `<section id="{chunk_id}">...</section>`。
+- 右侧面板三 tab 改为真实切换：
+  - 知识卡片：`knowledge_cards[]`
+  - 作文素材：`writing_materials[]`
+  - 复核：开放状态 `review_flags[]`
+- 知识卡/素材点击打开抽屉详情。
+- 知识卡和素材抽屉展示 `source_chunks`，并提供按 chunk 跳回正文的按钮。
+- 资源列表卡片展示 `source_chunks` 的低干扰关联提示。
+- 知识卡 tab 同时展示 `classics_refs[]` 的旁征博引资料入口。
+
+## 空态处理
+
+- `classics_refs` 为空：不显示旁征博引按钮/正文锚点，右侧知识卡 tab 只显示现有知识卡，完全为空时显示空态。
+- `knowledge_cards` 为空：知识卡 tab 显示旁征博引资料或空态，不造假卡片。
+- `writing_materials` 为空：素材 tab 显示“后端尚未返回作文素材”。
+- `review_flags` 为空：复核 tab 显示“后端尚未返回待复核项”。
+- `matched=false` 的 classics ref 不隐藏，明确显示“未匹配权威原文”。
 
 ## 与 demo 差异
 
-- demo 数据内置 `chunk.rawHtml` 和版本 HTML chunk section；React 版只使用真实 API 数据。
-- React 版的原文左栏由 `paragraphs + paragraph_range` 实时生成，不使用 demo 的内置原文 HTML。
-- 后端未提供版本分块字段时，React 版会尽力按已有正文结构近似切分，并已在上方记录字段缺口。
+- demo 的 `classicsRefs` 和复核文本是内置样例；React 版完全读取真实 `course_state` 字段。
+- demo 浮层位置由原生 DOM 全局管理；React 版用组件状态记录锚点位置。
+- 当前后端没有版本正文的结构化 token/span 坐标，正文标注采用前端文本匹配；若正文改写后不再包含 `review_flags[].text`，会自动回退到 chunk 定位。
 
 ## 验证
 
 - `cd apps/web && npm run check`：通过。
 - `cd apps/web && npm run build`：通过。
-- 浏览器视觉检查：本会话沙箱拒绝 dev server 监听，`npm run dev` 报 `listen EPERM: operation not permitted ::1:5173`；改用 `npx vite --host 127.0.0.1 --port 5174` 仍被拒绝 `listen EPERM`。
+- 浏览器烟测：本会话沙箱拒绝 dev server 监听，`npm run dev -- --host 127.0.0.1` 报 `listen EPERM: operation not permitted 127.0.0.1:5173`，因此未能打开 localhost 做视觉烟测。

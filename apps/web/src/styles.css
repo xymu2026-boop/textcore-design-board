@@ -923,6 +923,8 @@ a {
   border: 1px dashed var(--color-border-strong);
   border-radius: 12px;
   background: rgba(141, 133, 124, 0.08);
+  color: var(--color-text);
+  text-align: left;
 }
 
 .review-mark-block strong,
@@ -941,6 +943,15 @@ a {
   color: var(--color-text-subtle);
 }
 
+.review-mark-block.clickable {
+  cursor: pointer;
+}
+
+.review-mark-block.clickable:hover {
+  border-color: var(--color-review);
+  background: rgba(141, 133, 124, 0.12);
+}
+
 .classics-popover,
 .classical-appreciation-block {
   border: 1px solid rgba(78, 109, 95, 0.22);
@@ -952,6 +963,29 @@ a {
 
 .classics-popover {
   padding: 14px 16px;
+}
+
+.classics-anchor {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  margin: 0 2px;
+  padding: 0 8px;
+  border: 1px solid rgba(78, 109, 95, 0.26);
+  border-radius: 999px;
+  background: #f1f5ed;
+  color: #3f6756;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 720;
+  vertical-align: baseline;
+}
+
+.classics-anchor:hover,
+.classics-anchor:focus-visible,
+.classics-keyword:hover {
+  border-color: rgba(78, 109, 95, 0.48);
+  background: #e7f0e7;
 }
 
 .classics-popover h4 {
@@ -1016,10 +1050,18 @@ a {
 }
 
 .correction-mark {
+  position: relative;
   display: inline;
   margin-left: 6px;
   border-bottom: 2px dotted #6d9f8e;
   background: rgba(115, 160, 143, 0.08);
+}
+
+.review-inline {
+  margin-left: 0;
+  border-bottom: 1px dotted var(--color-review);
+  background: rgba(141, 133, 124, 0.08);
+  color: var(--color-review);
 }
 
 .correction-mark sup {
@@ -1028,6 +1070,34 @@ a {
   font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif;
   font-size: 11px;
   font-weight: 500;
+}
+
+.correction-tooltip {
+  position: absolute;
+  left: 0;
+  bottom: calc(100% + 8px);
+  z-index: 80;
+  width: min(320px, 72vw);
+  padding: 10px 12px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-surface-strong);
+  box-shadow: var(--shadow-card);
+  color: var(--color-text-muted);
+  font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Noto Sans SC", sans-serif;
+  font-size: 13px;
+  line-height: 1.55;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.correction-mark:hover .correction-tooltip,
+.correction-mark:focus .correction-tooltip,
+.correction-mark:focus-within .correction-tooltip {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .classical-fold {
@@ -1658,6 +1728,7 @@ a {
 .classics-popover {
   position: fixed;
   top: 168px;
+  left: auto;
   right: 72px;
   z-index: 70;
   width: min(340px, calc(100vw - 32px));
@@ -1667,17 +1738,88 @@ a {
   box-shadow: 0 18px 48px rgba(31, 26, 23, 0.16);
 }
 
+.classics-popover.show {
+  right: auto;
+}
+
+.classics-popover h3,
 .classics-popover h4 {
   margin: 2px 0 8px;
   font-family: "Noto Serif SC", "Songti SC", serif;
   font-size: 22px;
 }
 
-.classics-popover p {
+.classics-popover p,
+.classics-popover .info-block p {
   margin: 0 0 12px;
   color: var(--color-text-muted);
   font-size: 14px;
   line-height: 1.6;
+}
+
+.classics-popover .info-block {
+  margin: 10px 0;
+}
+
+.classics-popover .info-block h3 {
+  margin: 0 0 4px;
+  color: #4b715f;
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.popover-kicker {
+  color: #4b715f !important;
+  font-size: 12px !important;
+  font-weight: 760;
+}
+
+.popover-preview {
+  max-height: 7.2em;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: rgba(241, 245, 237, 0.72);
+  font-family: "Noto Serif SC", "Songti SC", serif;
+}
+
+.popover-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.popover-close {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--color-text-subtle);
+  cursor: pointer;
+  font-size: 18px;
+}
+
+.popover-close:hover {
+  background: rgba(141, 133, 124, 0.12);
+  color: var(--color-text);
+}
+
+.unmatched-note {
+  display: inline-flex;
+  margin: 0 0 10px !important;
+  padding: 3px 8px;
+  border: 1px solid rgba(141, 133, 124, 0.28);
+  border-radius: 999px;
+  background: rgba(141, 133, 124, 0.08);
+  color: var(--color-review) !important;
+  font-size: 12px !important;
+  font-weight: 680;
 }
 
 .classics-popover .popover-subtitle {
@@ -1732,6 +1874,50 @@ a {
   color: var(--color-text);
   font-size: 14px;
   line-height: 1.5;
+}
+
+.source-chunk-meta {
+  display: inline-flex;
+  margin-top: 8px;
+  color: var(--color-text-subtle);
+  font-size: 12px;
+}
+
+.source-chunk-links {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--color-border);
+}
+
+.source-chunk-links h3 {
+  margin: 0 0 8px;
+  font-size: 15px;
+}
+
+.source-chunk-links div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.classics-mini-item {
+  border-color: rgba(78, 109, 95, 0.24);
+  background: #f6faf3;
+}
+
+.pulse-target {
+  animation: pulse-target 1.2s ease;
+}
+
+@keyframes pulse-target {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(141, 133, 124, 0);
+  }
+
+  35% {
+    box-shadow: 0 0 0 8px rgba(141, 133, 124, 0.14);
+  }
 }
 
 .classical-appreciation-block {
