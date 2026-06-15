@@ -144,26 +144,38 @@ def _score_coherence(course_state: dict[str, Any]) -> int:
 
 
 def _score_classics_safety(course_state: dict[str, Any]) -> int:
+    """古文安全 = 保留 span 在保真版中未被改 + 转写错字进了复核。
+
+    注意：我们刻意"原文不静默替换"——权威 canonical 存在 classics_refs 供旁征博引，
+    正文用的是转写稿。所以不能要求 canonical 逐字出现在正文里(那是架构错误的旧逻辑)。
+    正确的安全信号是：(1) 老师所念的文言文/诗词原句(must_preserve_spans)在保真版里
+    原样保留、没被清洗/润色改坏；(2) 转写与权威不一致处(diffs)都已进 review_flags。
+    """
     refs = [
         ref
         for ref in _list(course_state.get("classics_refs"))
         if isinstance(ref, dict) and ref.get("matched")
     ]
-    if not refs:
+    # must_preserve_spans 在真实流水线里挂在 chunks 上(S3 产出)，不在 chunk_results
+    spans = [
+        str(span.get("text") or "").strip()
+        for chunk in _list(course_state.get("chunks"))
+        if isinstance(chunk, dict)
+        for span in _list(chunk.get("must_preserve_spans"))
+        if isinstance(span, dict) and str(span.get("text") or "").strip()
+    ]
+    if not refs and not spans:
         return 100
 
-    body_text = _all_version_text(_versions(course_state))
-    canonical_hits = 0
-    canonical_total = 0
-    for ref in refs:
-        canonical = str(ref.get("canonical_text") or "").strip()
-        if not canonical:
-            canonical_total += 1
-            continue
-        canonical_total += 1
-        if _contains_term(body_text, canonical):
-            canonical_hits += 1
+    # (1) 保留 span 完整性：原句应原样出现在保真版正文
+    faithful_text = _plain_text(str(_versions(course_state).get("faithful", {}).get("body_md", "")))
+    if spans:
+        kept = sum(1 for span in spans if _contains_term(faithful_text, span))
+        preserve_score = kept * 100 / len(spans)
+    else:
+        preserve_score = 100.0
 
+    # (2) 错字 diff 标记率
     diffs = [
         (ref, diff)
         for ref in refs
@@ -177,10 +189,9 @@ def _score_classics_safety(course_state: dict[str, Any]) -> int:
         diff_hits = sum(1 for ref, diff in diffs if _diff_has_review_flag(ref, diff, review_flags))
         diff_score = diff_hits * 100 / len(diffs)
     else:
-        diff_score = 100
+        diff_score = 100.0
 
-    canonical_score = canonical_hits * 100 / canonical_total if canonical_total else 100
-    return _clamp_score(canonical_score * 0.65 + diff_score * 0.35)
+    return _clamp_score(preserve_score * 0.6 + diff_score * 0.4)
 
 
 def _versions(course_state: dict[str, Any]) -> dict[str, Any]:

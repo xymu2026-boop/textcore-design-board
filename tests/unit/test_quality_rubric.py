@@ -166,7 +166,16 @@ def _low_quality_state() -> dict[str, Any]:
             }
         )
     return {
-        "chunks": [{"chunk_id": f"c{index:03d}"} for index in range(1, 5)],
+        "chunks": [
+            {
+                "chunk_id": "c001",
+                # 原句未在保真版原样保留(被改坏) → preserve_score 低
+                "must_preserve_spans": [
+                    {"text": "床前明月光，疑是地上霜。", "reason": "poetry"}
+                ],
+            },
+            *({"chunk_id": f"c{index:03d}"} for index in range(2, 5)),
+        ],
         "chunk_results": chunk_results,
         "classics_refs": [
             {
