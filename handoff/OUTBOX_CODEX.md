@@ -1,57 +1,42 @@
-# OUTBOX · Codex · B1 质量记分卡
+# OUTBOX · Codex · A4 前端状态闭环
 
 ## 改动范围
 
-- 新增 `textcore/pipeline/deterministic/quality_rubric.py`。
-- 新增 `scripts/score_quality.py`。
-- 修改 `textcore/pipeline/stages/s9_quality.py` 接入 rubric 分数。
-- 新增 `tests/unit/test_quality_rubric.py`。
-- 未改 schema、前端、其它 stage 逻辑；未提交 git。
+- 只改 `apps/web/src/App.tsx` 与 `apps/web/src/styles.css`。
+- 未改 `apps/api`、`textcore`、`schemas`、`prompts`、`docs/prototype`。
+- 未提交 git。
 
-## 五维算法
+## 状态呈现
 
-- `coverage`：取 `sentence_ranker.DEFAULT_KEYWORD_SETS` 中实际出现在 faithful/S4 文本里的关键词，加上 `chunk_results[*].entities`；统计这些词/实体在 concise+study 中的保留率。关键词/实体同时存在时按 55%/45% 合成。
-- `structure`：各版本标题数量与 chunk 数对齐度 + 标题层级；再结合 chunk 覆盖率（chunk_id/title/key_points 是否出现在四档正文）。
-- `fluency`：按口语残留词（嗯/呃/这个/那个/是不是/对吧/能理解吧）、重复标点、超长句比例扣分。
-- `coherence`：统计连接词（因此/所以/换句话说/首先/其次）出现情况，并检查 concise 段落数与 chunk 数是否匹配。
-- `classics_safety`：matched `classics_refs` 的 `canonical_text` 是否原样出现在正文；每个 diff 是否进入 `review_flags`。
-- `overall`：五维等权平均，所有分数均为 0-100；全程纯规则、零 LLM、零网络。
+- 刷新恢复：详情页继续从 URL `course_id` 调 `getCourse(courseId)` 拉取；同一课程手动刷新状态时保留当前可见详情，不先清空页面。
+- `created` / `processing`：详情页显示“课程处理中”，导出按钮禁用；不渲染完成态正文、知识卡片和导出入口，改为处理进度、后端 `processing_log` 阶段列表、四档正文占位卡。
+- `failed`：详情页显示“处理失败，暂不可导出”，导出按钮禁用；显示失败阶段/消息，提供“刷新状态”和“重新上传课稿”入口。
+- 空态：课稿库/工作台仍使用真实 API 列表为空时的空面板，不造假数据。
+- 正常态：`completed` / `needs_human` 继续显示 A1-A3 的正文版本、资源侧栏、复核抽屉和导出入口。
 
-## S9 接入
+## 行为闭环
 
-- S9 在 `evaluate_quality()` 中构造当前 `chunk_results/classics_refs/global/versions/review_flags` 的 course-state 片段并调用 `score_course()`。
-- `quality.quality_score` 改为 rubric 的 `overall`。
-- `quality.main_risks[0]` 写入五维明细，例如：
-  - `[score] coverage=84 structure=96 fluency=86 coherence=78 classics_safety=50 overall=79`
-- 原有 preferred/hard 版本比例检查、古文 diff 保护、review flag 聚合、`recommended_human_review` 逻辑保留。
+- SSE：上传成功后继续消费 `/events`，按事件 `progress` 或阶段推断进度；连接中断进入 `interrupted` 状态，显示“进度连接中断”，并刷新课稿库，不让进度条卡死。
+- SSE 完成：收到完成事件后关闭连接、刷新列表，并自动跳转到新课程详情页。
+- 导出：导出弹窗提交时按钮禁用并显示“生成中...”；成功触发下载，文件名使用课程名 + 版本名；失败显示错误提示并保留“重试生成”。
+- 上一篇/下一篇：无可靠相邻上下文时已移除误导按钮，仅保留“返回课稿库”。
+- 健壮性：长课程名、原始文件名、表格文本可换行；资源抽屉列表增加滚动上限，复核项很多时不会撑破抽屉。
 
-## score_quality 用法
+## 主要组件变化
 
-- 单篇 JSON：`python scripts/score_quality.py data/processed/<course_id>/course_state.json`
-- 单篇 course_id：`python scripts/score_quality.py <course_id>`
-- 批量：`python scripts/score_quality.py --all`
-- 本机无 `python` shim，已用 `.venv/bin/python` 和 `python3` 验证同一脚本。
+- `CourseDetail`：增加处理中轮询、非完成态分支、禁用导出文案、去掉上一篇/下一篇。
+- 新增 `CourseStatusPanel`：承载 processing/failed 的版本占位、进度条、阶段列表和重试入口。
+- `UploadPanel` / `ProgressPanel`：补进度 clamp、中断/失败/完成文案、同文件重选。
+- `ExportModal`：接收课程标题并生成安全下载文件名。
+- `CourseTable` / `App`：导出入口向弹窗传课程标题；上传 SSE 完成后自动导航。
 
-## 现有课程打分
+## 验证
 
-`data/processed` 当前有 7 个 `course_state.json`（不是 6 个），批量输出如下：
+- `cd apps/web && npm run check`：通过。
+- `cd apps/web && npm run build`：通过。
+- `git diff --check -- apps/web/src/App.tsx apps/web/src/styles.css`：通过。
 
-| course_id | course | coverage | structure | fluency | coherence | classics_safety | overall |
-| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| course_2026_01e2b6d8 | 五上秋季-人文综合涵养-第8讲-古诗词2 | 84 | 96 | 86 | 78 | 50 | 79 |
-| course_2026_50543e78 | 五上-人文综合涵养-寒假-第三讲-隐显-偷钱+第四讲-文言文-醉叟传1 | 77 | 84 | 85 | 84 | 100 | 86 |
-| course_2026_6236856c | 五上-人文综合涵养-寒假-第七讲-阅读理解+作文点评2 | 49 | 38 | 92 | 75 | 100 | 71 |
-| course_2026_652f24cc | 五上-人文综合涵养-寒假-第三讲-隐显-偷钱+第四讲-文言文-醉叟传1 | 33 | 48 | 100 | 75 | 35 | 58 |
-| course_2026_6725f111 | 五上-人文综合涵养-寒假-第七讲-阅读理解+作文点评2 | 83 | 83 | 81 | 90 | 100 | 87 |
-| course_demo_essay | 五上-人文综合涵养-寒假-第七讲-阅读理解+作文点评2 | 88 | 85 | 70 | 64 | 100 | 81 |
-| course_demo_zuisou | 五上-人文综合涵养-寒假-第三讲-隐显-偷钱+第四讲-文言文-醉叟传1 | 85 | 85 | 70 | 64 | 100 | 81 |
+## 遗留
 
-## 测试与验证
-
-- `.venv/bin/python -m pytest tests/unit/test_quality_rubric.py tests/unit/test_s9_quality.py`：8 passed。
-- `.venv/bin/python scripts/score_quality.py --all`：通过，输出上表。
-- `.venv/bin/python scripts/score_quality.py course_2026_01e2b6d8`：通过。
-- `make check`：通过。
-  - 前端 typecheck/lint 通过。
-  - `scripts/check_api.py` 通过。
-  - 全量 pytest：45 passed，1 个既有 StarletteDeprecationWarning。
+- in-app Browser smoke check未执行：本会话 Browser `iab` 不可用。已用 typecheck/lint/build 覆盖静态验证。
+- 详情页处理中轮询依赖后端 `GET /api/courses/{id}` 返回最新状态；如果后台进度只存在内存 SSE 而未落库，刷新恢复仍以详情 API 的状态为准。

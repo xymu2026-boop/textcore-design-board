@@ -17,6 +17,7 @@ import type {
   OutlineNode,
   Paragraph,
   ReviewFlag,
+  StageStatus,
   StatusEvent,
   WritingMaterial,
 } from "./api/types";
@@ -100,7 +101,7 @@ const NAV_ITEMS = [
 ] as const;
 
 const STATUS_LABELS: Record<CourseStatus, string> = {
-  created: "已创建",
+  created: "处理中",
   processing: "处理中",
   completed: "已完成",
   failed: "失败",
@@ -112,6 +113,24 @@ const STATUS_HINTS: Partial<Record<CourseStatus, string>> = {
   processing: "正在生成，暂不可导出",
   failed: "处理失败",
 };
+
+const PIPELINE_STAGES = ["S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10"] as const;
+
+const PIPELINE_STAGE_LABELS: Record<string, string> = {
+  S0: "解析 Word",
+  S1: "预清洗",
+  S2: "课型识别",
+  S3: "语义分块",
+  S4: "分块清洗",
+  S5: "古文查证",
+  S6: "全局合并",
+  S7: "生成版本",
+  S8: "知识素材",
+  S9: "复核汇总",
+  S10: "完成入库",
+};
+
+const DETAIL_POLL_INTERVAL_MS = 3500;
 
 const INITIAL_UPLOAD_STATE: UploadState = {
   status: "idle",
@@ -565,6 +584,94 @@ function canExportCourse(status: CourseStatus): boolean {
   return status === "completed" || status === "needs_human";
 }
 
+function isProcessingStatus(status: CourseStatus): boolean {
+  return status === "created" || status === "processing";
+}
+
+function clampProgress(value: number | undefined): number {
+  if (typeof value !== "number" || Number.isNaN(value)) return 0;
+  return Math.min(1, Math.max(0, value));
+}
+
+function progressWidth(value: number | undefined): string {
+  return `${Math.round(clampProgress(value) * 100)}%`;
+}
+
+function stageProgress(stage: string, status: StageStatus): number {
+  const index = PIPELINE_STAGES.findIndex((item) => item === stage);
+  if (index < 0) return status === "done" || status === "skipped" ? 0.9 : 0.12;
+  const base = index / PIPELINE_STAGES.length;
+  const step = 1 / PIPELINE_STAGES.length;
+  if (status === "done" || status === "skipped") return Math.min(1, base + step);
+  if (status === "running") return Math.min(0.98, base + step * 0.55);
+  if (status === "failed") return Math.min(0.98, base + step * 0.45);
+  return Math.min(0.98, base);
+}
+
+function progressForStatusEvent(event: StatusEvent, fallback: number): number {
+  if (typeof event.progress === "number") return Math.max(clampProgress(event.progress), fallback);
+  return Math.max(stageProgress(event.stage, event.stage_status), fallback);
+}
+
+function courseStatusEvents(course: CourseState): StatusEvent[] {
+  const stages = course.processing_log?.stages ?? [];
+  if (stages.length > 0) {
+    return stages.map((stage) => ({
+      course_id: course.course_id,
+      stage: stage.stage,
+      stage_label: PIPELINE_STAGE_LABELS[stage.stage] ?? stage.stage,
+      stage_status: stage.status,
+      overall_status: course.status,
+      progress: stageProgress(stage.stage, stage.status),
+      message: stage.note,
+      ts: stage.ended_at ?? stage.started_at,
+    }));
+  }
+
+  if (course.status === "failed") {
+    return [
+      {
+        course_id: course.course_id,
+        stage: "处理状态",
+        stage_label: "处理失败",
+        stage_status: "failed",
+        overall_status: "failed",
+        message: "后端未返回具体失败阶段",
+        progress: 0,
+      },
+    ];
+  }
+
+  return [
+    {
+      course_id: course.course_id,
+      stage: course.status === "created" ? "等待队列" : "处理中",
+      stage_label: course.status === "created" ? "等待后端开始处理" : "后端正在生成课程资料",
+      stage_status: "running",
+      overall_status: course.status,
+      progress: course.status === "created" ? 0.04 : 0.14,
+    },
+  ];
+}
+
+function courseProcessingProgress(course: CourseState): number {
+  const events = courseStatusEvents(course);
+  const inferred = events.reduce((max, event) => Math.max(max, progressForStatusEvent(event, 0)), 0);
+  if (course.status === "created") return Math.max(0.04, inferred);
+  if (course.status === "processing") return Math.max(0.14, inferred);
+  if (course.status === "failed") return inferred;
+  return 1;
+}
+
+function safeFileName(value: string | undefined): string {
+  const cleaned = compactText(value, "TextCore课稿")
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .replace(/\.+$/g, "")
+    .trim()
+    .slice(0, 90);
+  return cleaned || "TextCore课稿";
+}
+
 function textIncludes(value: string | undefined, query: string): boolean {
   const normalizedQuery = compactText(query, "");
   if (!normalizedQuery) return false;
@@ -957,7 +1064,10 @@ function UploadPanel({
       <input
         accept=".docx"
         hidden
-        onChange={(event) => handleFile(event.currentTarget.files?.[0])}
+        onChange={(event) => {
+          handleFile(event.currentTarget.files?.[0]);
+          event.currentTarget.value = "";
+        }}
         ref={inputRef}
         type="file"
       />
@@ -969,11 +1079,11 @@ function UploadPanel({
           选择 Word 文件
         </button>
         {upload.status !== "idle" ? (
-          <div className="upload-status" role="status">
+          <div className={`upload-status upload-${upload.status}`} role="status">
             <strong>{upload.fileName ?? "课稿"}</strong>
             <span>{upload.message ?? "正在上传并等待处理进度..."}</span>
             <div className="progress-track">
-              <i style={{ width: `${Math.round(upload.progress * 100)}%` }} />
+              <i style={{ width: progressWidth(upload.progress) }} />
             </div>
           </div>
         ) : null}
@@ -1004,7 +1114,11 @@ function ProgressPanel({ latestCourse, upload }: { latestCourse?: CourseListItem
         : "等待第一篇课稿"
       : upload.status === "interrupted"
         ? `进度连接中断：${upload.fileName ?? latestCourse?.title ?? "新课稿"}`
-      : `正在整理：${upload.fileName ?? latestCourse?.title ?? "新课稿"}`;
+        : upload.status === "completed"
+          ? `整理完成：${upload.fileName ?? latestCourse?.title ?? "新课稿"}`
+          : upload.status === "failed"
+            ? `处理失败：${upload.fileName ?? latestCourse?.title ?? "新课稿"}`
+            : `正在整理：${upload.fileName ?? latestCourse?.title ?? "新课稿"}`;
 
   return (
     <section className="progress-panel">
@@ -1012,9 +1126,9 @@ function ProgressPanel({ latestCourse, upload }: { latestCourse?: CourseListItem
       <p className="progress-title">{progressTitle}</p>
       {upload.status !== "idle" ? (
         <div className="progress-summary" aria-label="整体进度">
-          <span>{Math.round(upload.progress * 100)}%</span>
+          <span>{Math.round(clampProgress(upload.progress) * 100)}%</span>
           <div className="progress-track">
-            <i style={{ width: `${Math.round(upload.progress * 100)}%` }} />
+            <i style={{ width: progressWidth(upload.progress) }} />
           </div>
         </div>
       ) : null}
@@ -1034,7 +1148,7 @@ function ProgressPanel({ latestCourse, upload }: { latestCourse?: CourseListItem
         onClick={() => activeCourseId && navigateTo({ name: "detail", courseId: activeCourseId })}
         type="button"
       >
-        查看课稿
+        {upload.status === "interrupted" ? "查看最新状态" : "查看课稿"}
       </button>
     </section>
   );
@@ -1049,7 +1163,7 @@ function CourseTable({
 }: {
   courses: CourseListItem[];
   compact?: boolean;
-  onExport: (courseId: string) => void;
+  onExport: (courseId: string, version?: VersionKey, title?: string) => void;
   emptyTitle?: string;
   emptyMessage?: string;
 }) {
@@ -1123,7 +1237,7 @@ function CourseTable({
                   <button
                     className="tiny-button"
                     disabled={!canExportCourse(course.status)}
-                    onClick={() => onExport(course.course_id)}
+                    onClick={() => onExport(course.course_id, undefined, course.title)}
                     title={canExportCourse(course.status) ? "导出 Word" : STATUS_HINTS[course.status] ?? "当前状态不可导出"}
                     type="button"
                   >
@@ -1154,7 +1268,7 @@ function WorkspacePage({
   upload: UploadState;
   onRetry: () => void;
   onUpload: (file: File) => void;
-  onExport: (courseId: string) => void;
+  onExport: (courseId: string, version?: VersionKey, title?: string) => void;
 }) {
   return (
     <section className="workspace-grid">
@@ -1200,7 +1314,7 @@ function CoursesPage({
   courses: CourseListItem[];
   error?: string;
   listStatus: LoadStatus;
-  onExport: (courseId: string) => void;
+  onExport: (courseId: string, version?: VersionKey, title?: string) => void;
   onRetry: () => void;
 }) {
   const [query, setQuery] = useState("");
@@ -1723,12 +1837,87 @@ function ResourcePanelDrawer({
   );
 }
 
+function CourseStatusPanel({
+  course,
+  onRefresh,
+}: {
+  course: CourseState;
+  onRefresh: () => void;
+}) {
+  const isFailed = course.status === "failed";
+  const events = courseStatusEvents(course);
+  const progress = courseProcessingProgress(course);
+  const latestFailed = [...events].reverse().find((event) => event.stage_status === "failed");
+
+  return (
+    <section className={`course-status-panel ${isFailed ? "failed" : "processing"}`}>
+      <div className="status-panel-head">
+        <div>
+          <p className="page-kicker">{isFailed ? "处理失败" : "课程处理中"}</p>
+          <h2>{isFailed ? "处理失败，暂不可导出" : "正在生成正文版本与学习资料"}</h2>
+          <p className="muted">
+            {isFailed
+              ? "后端返回处理失败。请检查后端处理日志，或返回工作台重新上传课稿。"
+              : "完成前不会显示为可导出的完成稿；本页会定期刷新最新处理状态。"}
+          </p>
+          {latestFailed?.message ? <p className="inline-error">{latestFailed.message}</p> : null}
+        </div>
+        <span className={`tag status-${course.status}`}>{STATUS_LABELS[course.status]}</span>
+      </div>
+
+      {!isFailed ? (
+        <div className="detail-progress-summary" aria-label="课程处理进度">
+          <span>{Math.round(clampProgress(progress) * 100)}%</span>
+          <div className="progress-track">
+            <i style={{ width: progressWidth(progress) }} />
+          </div>
+        </div>
+      ) : null}
+
+      <div className="version-placeholder-grid" aria-label="正文版本状态">
+        {VERSION_TIERS.map((tier) => (
+          <article className="version-placeholder-card" key={tier.key}>
+            <strong>{tier.label}</strong>
+            <span>{isFailed ? "未生成" : "等待生成"}</span>
+            <p>{tier.description}</p>
+          </article>
+        ))}
+      </div>
+
+      <div className="status-steps">
+        {events.map((event) => (
+          <div className={`step ${event.stage_status}`} key={`${event.stage}-${event.ts ?? event.message ?? event.stage_status}`}>
+            <span>{event.stage_status === "done" ? "✓" : event.stage_status === "failed" ? "!" : ""}</span>
+            <span>
+              {event.stage}：{event.stage_label ?? event.message ?? "处理中"}
+              {event.message && event.message !== event.stage_label ? <small>{event.message}</small> : null}
+            </span>
+          </div>
+        ))}
+      </div>
+
+      <footer className="status-actions">
+        <button className="button-secondary" onClick={onRefresh} type="button">
+          刷新状态
+        </button>
+        {isFailed ? (
+          <button className="button-primary" onClick={() => navigateTo({ name: "workspace" })} type="button">
+            重新上传课稿
+          </button>
+        ) : null}
+      </footer>
+    </section>
+  );
+}
+
 function ExportModal({
   courseId,
+  title,
   version,
   onClose,
 }: {
   courseId?: string;
+  title?: string;
   version: VersionKey;
   onClose: () => void;
 }) {
@@ -1756,7 +1945,7 @@ function ExportModal({
       const url = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `${courseId}-${version}.docx`;
+      link.download = `${safeFileName(title ?? courseId)}-${VERSION_LABELS[version]}.docx`;
       link.click();
       URL.revokeObjectURL(url);
       setMessage("已开始下载。");
@@ -1833,7 +2022,7 @@ function CourseDetail({
   onExport,
 }: {
   courseId: string;
-  onExport: (courseId: string, version?: VersionKey) => void;
+  onExport: (courseId: string, version?: VersionKey, title?: string) => void;
 }) {
   const [course, setCourse] = useState<CourseState | null>(null);
   const [error, setError] = useState<DetailError | null>(null);
@@ -1850,7 +2039,7 @@ function CourseDetail({
 
   useEffect(() => {
     let active = true;
-    setCourse(null);
+    setCourse((current) => (current?.course_id === courseId ? current : null));
     setError(null);
     getCourse(courseId)
       .then((payload) => {
@@ -1878,6 +2067,28 @@ function CourseDetail({
       active = false;
     };
   }, [courseId, reloadKey]);
+
+  useEffect(() => {
+    if (!course || !isProcessingStatus(course.status)) return undefined;
+
+    let active = true;
+    const timer = window.setInterval(() => {
+      getCourse(courseId)
+        .then((payload) => {
+          if (!active) return;
+          setCourse(payload);
+          setVersion(versionForCourse(payload));
+        })
+        .catch(() => {
+          // Keep the visible processing state on transient polling failures.
+        });
+    }, DETAIL_POLL_INTERVAL_MS);
+
+    return () => {
+      active = false;
+      window.clearInterval(timer);
+    };
+  }, [course, courseId]);
 
   const scrollToDetailTop = () => {
     const target = document.querySelector(".source-summary") ?? document.querySelector(".detail-header");
@@ -2077,12 +2288,6 @@ function CourseDetail({
         <button className="button-ghost" onClick={() => navigateTo({ name: "courses" })} type="button">
           ← 返回课稿库
         </button>
-        <button className="tiny-button" onClick={() => navigateTo({ name: "courses" })} type="button">
-          上一篇
-        </button>
-        <button className="tiny-button" onClick={() => navigateTo({ name: "courses" })} type="button">
-          下一篇
-        </button>
       </div>
       <div className="detail-header">
         <div>
@@ -2098,29 +2303,23 @@ function CourseDetail({
             <span className={`tag status-${course.status}`}>{STATUS_LABELS[course.status]}</span>
             <span className="tag">待复核 {reviewFlags.length} 条</span>
           </div>
-          <HeaderVersionSummary course={course} rawChars={rawChars} />
+          {isProcessing || isFailed ? null : <HeaderVersionSummary course={course} rawChars={rawChars} />}
         </div>
         <button
           className="button-primary"
           disabled={!canExportCourse(course.status)}
-          onClick={() => onExport(course.course_id, version)}
+          onClick={() => onExport(course.course_id, version, courseTitle(course))}
           title={canExportCourse(course.status) ? "导出 Word" : STATUS_HINTS[course.status] ?? "当前状态不可导出"}
           type="button"
         >
-          ⇩ 导出 Word
+          {canExportCourse(course.status) ? "⇩ 导出 Word" : isFailed ? "处理失败不可导出" : "处理中不可导出"}
         </button>
       </div>
 
       {isProcessing ? (
-        <StatePanel
-          message="后端仍在生成课程版本、知识卡片和导出材料。完成前不会显示为可导出的完成稿。"
-          title="课程处理中"
-        />
+        <CourseStatusPanel course={course} onRefresh={() => setReloadKey((current) => current + 1)} />
       ) : isFailed ? (
-        <StatePanel
-          message="后端返回处理失败。当前课程不可导出，请检查后端处理日志或重新上传课稿。"
-          title="处理失败"
-        />
+        <CourseStatusPanel course={course} onRefresh={() => setReloadKey((current) => current + 1)} />
       ) : (
       <div className="detail-layout">
         <ChunkToc activeId={currentChunkId} course={course} onJump={jumpTo} />
@@ -2478,7 +2677,7 @@ export function App() {
   const [listError, setListError] = useState("");
   const [listStatus, setListStatus] = useState<LoadStatus>("idle");
   const [upload, setUpload] = useState<UploadState>(INITIAL_UPLOAD_STATE);
-  const [exportTarget, setExportTarget] = useState<{ courseId?: string; version: VersionKey }>({
+  const [exportTarget, setExportTarget] = useState<{ courseId?: string; version: VersionKey; title?: string }>({
     version: DEFAULT_VERSION,
   });
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -2508,6 +2707,7 @@ export function App() {
 
   const handleUpload = async (file: File) => {
     eventSourceRef.current?.close();
+    eventSourceRef.current = null;
     setUpload({
       status: "uploading",
       fileName: file.name,
@@ -2524,9 +2724,11 @@ export function App() {
         progress: 0.14,
         message: "上传完成，等待后端处理进度...",
       }));
-      eventSourceRef.current = subscribeCourseEvents(
+      let source: EventSource;
+      source = subscribeCourseEvents(
         result.course_id,
         (event) => {
+          if (eventSourceRef.current !== source) return;
           const nextStatus =
             event.overall_status === "completed"
               ? "completed"
@@ -2536,16 +2738,21 @@ export function App() {
           setUpload((current) => ({
             ...current,
             status: nextStatus,
-            progress: event.progress ?? current.progress,
+            progress: nextStatus === "completed" ? 1 : progressForStatusEvent(event, current.progress),
             message: event.message ?? event.stage_label ?? current.message,
             events: [...current.events, event].slice(-12),
           }));
           if (nextStatus === "completed" || nextStatus === "failed") {
-            eventSourceRef.current?.close();
+            source.close();
+            eventSourceRef.current = null;
             refreshCourses();
+            if (nextStatus === "completed") {
+              navigateTo({ name: "detail", courseId: result.course_id });
+            }
           }
         },
         () => {
+          if (eventSourceRef.current !== source) return;
           const interruptedEvent: StatusEvent = {
             course_id: result.course_id,
             stage: "进度连接",
@@ -2559,23 +2766,39 @@ export function App() {
             message: "进度连接中断，后端可能仍在处理。可重试刷新课稿库查看最新状态。",
             events: [...current.events, interruptedEvent].slice(-12),
           }));
-          eventSourceRef.current?.close();
+          source.close();
+          eventSourceRef.current = null;
           refreshCourses();
         },
       );
+      eventSourceRef.current = source;
       refreshCourses();
     } catch (error) {
+      const message = error instanceof Error ? error.message : "上传失败";
+      const failedEvent: StatusEvent = {
+        course_id: "upload",
+        stage: "上传",
+        stage_label: "上传失败",
+        stage_status: "failed",
+        overall_status: "failed",
+        message,
+      };
       setUpload((current) => ({
         ...current,
         status: "failed",
         progress: 0,
-        message: error instanceof Error ? error.message : "上传失败",
+        message,
+        events: [
+          ...current.events,
+          current.courseId ? { ...failedEvent, course_id: current.courseId } : failedEvent,
+        ].slice(-12),
       }));
     }
   };
 
-  const openExport = (courseId: string, version: VersionKey = DEFAULT_VERSION) => {
-    setExportTarget({ courseId, version });
+  const openExport = (courseId: string, version: VersionKey = DEFAULT_VERSION, title?: string) => {
+    const courseTitleFromList = courses.find((course) => course.course_id === courseId)?.title;
+    setExportTarget({ courseId, version, title: title ?? courseTitleFromList ?? courseId });
   };
 
   const page = useMemo(() => {
@@ -2618,6 +2841,7 @@ export function App() {
       <ExportModal
         courseId={exportTarget.courseId}
         onClose={() => setExportTarget({ version: DEFAULT_VERSION })}
+        title={exportTarget.title}
         version={exportTarget.version}
       />
     </div>
