@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import io
 import re
 from collections.abc import Iterable
@@ -24,6 +25,7 @@ VERSION_LABELS = {
     "study": "学习整理",
     "outline": "结构提纲",
 }
+REVIEW_GRAY = RGBColor(104, 104, 104)
 
 
 def export_course_docx(
@@ -39,25 +41,7 @@ def export_course_docx(
     doc = Document()
     _configure_document(doc, export_format)
 
-    meta = course_state.get("source", {}).get("detected_meta", {})
-    title = (
-        meta.get("course_title")
-        or course_state.get("source", {}).get("file")
-        or "TextCore 导出"
-    )
-    doc.add_heading(str(title), level=0)
-    _add_low_key_paragraph(
-        doc,
-        " / ".join(
-            item
-            for item in [
-                course_state.get("source", {}).get("file"),
-                meta.get("teacher"),
-                "完整留档" if export_format == "archive" else "简洁可打印",
-            ]
-            if item
-        ),
-    )
+    _add_front_matter(doc, course_state, export_format)
 
     if "summary" in selected:
         _add_summary(doc, course_state)
@@ -69,9 +53,9 @@ def export_course_docx(
     if "materials" in selected:
         _add_materials(doc, course_state.get("writing_materials", []))
     if "review" in selected:
-        _add_review_flags(doc, course_state.get("review_flags", []))
+        _add_review_flags(doc, course_state.get("review_flags", []), export_format)
     if "classics" in selected:
-        _add_classics(doc, course_state.get("classics_refs", []))
+        _add_classics(doc, course_state.get("classics_refs", []), export_format)
     if export_format == "archive":
         _add_archive_notes(doc, course_state)
 
@@ -115,22 +99,80 @@ def _configure_document(doc: Document, export_format: str) -> None:
     normal.font.name = "Arial"
     normal._element.rPr.rFonts.set(qn("w:eastAsia"), "Microsoft YaHei")
     normal.font.size = Pt(10.5 if export_format == "printable" else 10)
+    normal.paragraph_format.space_after = Pt(3)
+    normal.paragraph_format.line_spacing = 1.12
 
-    _ensure_paragraph_style(doc, "TC Low Key", RGBColor(100, 100, 100), Pt(9.5))
-    quote = _ensure_paragraph_style(doc, "TC Quote", RGBColor(90, 90, 90), Pt(9.5))
+    _configure_builtin_heading_styles(doc)
+    _ensure_paragraph_style(doc, "TC Low Key", RGBColor(100, 100, 100), Pt(9))
+    _ensure_paragraph_style(doc, "TC Front Meta", RGBColor(72, 72, 72), Pt(10))
+    _ensure_paragraph_style(doc, "TC Source", RGBColor(110, 110, 110), Pt(8.5))
+    review = _ensure_paragraph_style(doc, "TC Review Flag", REVIEW_GRAY, Pt(9))
+    review.paragraph_format.left_indent = Inches(0.12)
+    review.paragraph_format.space_after = Pt(2)
+    quote = _ensure_paragraph_style(doc, "TC Quote", RGBColor(72, 72, 72), Pt(10))
     quote.paragraph_format.left_indent = Inches(0.18)
-    quote.paragraph_format.space_before = Pt(2)
-    quote.paragraph_format.space_after = Pt(4)
+    quote.paragraph_format.right_indent = Inches(0.08)
+    quote.paragraph_format.space_before = Pt(3)
+    quote.paragraph_format.space_after = Pt(5)
+
+
+def _configure_builtin_heading_styles(doc: Document) -> None:
+    title = doc.styles["Title"]
+    _set_font(title, size=Pt(18), bold=True)
+    title.paragraph_format.space_after = Pt(8)
+
+    for name, size, before, after in [
+        ("Heading 1", Pt(15), Pt(14), Pt(6)),
+        ("Heading 2", Pt(12.5), Pt(9), Pt(4)),
+        ("Heading 3", Pt(11), Pt(6), Pt(3)),
+        ("Heading 4", Pt(10.5), Pt(5), Pt(2)),
+    ]:
+        style = doc.styles[name]
+        _set_font(style, size=size, bold=True)
+        style.paragraph_format.space_before = before
+        style.paragraph_format.space_after = after
+
+
+def _add_front_matter(
+    doc: Document,
+    course_state: dict[str, Any],
+    export_format: str,
+) -> None:
+    source = course_state.get("source", {})
+    meta = source.get("detected_meta", {})
+    title = meta.get("course_title") or source.get("file") or "TextCore 导出"
+    doc.add_heading(str(title), level=0)
+
+    rows = [
+        ("课程名", title),
+        ("讲师", meta.get("teacher")),
+        ("来源文件", source.get("file")),
+        ("导出用途", "完整留档" if export_format == "archive" else "简洁可打印"),
+        ("生成说明", "TextCore 根据课程转写稿整理，适合打印或归档前浏览确认。"),
+    ]
+    if export_format == "archive":
+        rows.extend(
+            [
+                ("课程 ID", course_state.get("course_id")),
+                ("导入时间", source.get("imported_at")),
+            ]
+        )
+
+    for label, value in rows:
+        if value:
+            paragraph = doc.add_paragraph(style="TC Front Meta")
+            paragraph.add_run(f"{label}：").bold = True
+            paragraph.add_run(_plain_text(str(value)))
 
 
 def _add_summary(doc: Document, course_state: dict[str, Any]) -> None:
-    doc.add_heading("课程摘要", level=1)
+    _add_section_heading(doc, "课程摘要")
     summary = course_state.get("global", {}).get("course_summary") or "暂无课程摘要。"
     _add_paragraphs(doc, str(summary))
 
 
 def _add_version(doc: Document, version_key: str, version: dict[str, Any]) -> None:
-    doc.add_heading(VERSION_LABELS[version_key], level=1)
+    _add_section_heading(doc, VERSION_LABELS[version_key])
     compression = version.get("compression")
     if compression is not None:
         _add_low_key_paragraph(doc, f"压缩率：{compression:.0%}")
@@ -138,7 +180,7 @@ def _add_version(doc: Document, version_key: str, version: dict[str, Any]) -> No
 
 
 def _add_cards(doc: Document, cards: list[dict[str, Any]]) -> None:
-    doc.add_heading("知识卡片", level=1)
+    _add_section_heading(doc, "知识卡片")
     if not cards:
         _add_low_key_paragraph(doc, "暂无知识卡片。")
         return
@@ -151,7 +193,7 @@ def _add_cards(doc: Document, cards: list[dict[str, Any]]) -> None:
 
 
 def _add_materials(doc: Document, materials: list[dict[str, Any]]) -> None:
-    doc.add_heading("作文素材", level=1)
+    _add_section_heading(doc, "作文素材")
     if not materials:
         _add_low_key_paragraph(doc, "暂无作文素材。")
         return
@@ -166,27 +208,50 @@ def _add_materials(doc: Document, materials: list[dict[str, Any]]) -> None:
             _add_quote(doc, f"用法：{material['usage_suggestion']}")
 
 
-def _add_review_flags(doc: Document, flags: list[dict[str, Any]]) -> None:
-    doc.add_heading("复核标记", level=1)
+def _add_review_flags(
+    doc: Document,
+    flags: list[dict[str, Any]],
+    export_format: str,
+) -> None:
+    _add_section_heading(doc, "复核标记")
     if not flags:
         _add_low_key_paragraph(doc, "暂无待复核项。")
         return
     for flag in flags:
-        severity = flag.get("severity", "medium")
+        severity = flag.get("severity") or "medium"
         flag_id = flag.get("flag_id", "")
-        paragraph = doc.add_paragraph(style="TC Low Key")
-        paragraph.add_run(f"{flag_id} [{severity}] ").bold = True
-        paragraph.add_run(str(flag.get("text") or ""))
-        reason = flag.get("reason")
-        if reason:
-            paragraph.add_run(f" - {reason}")
+        text = str(flag.get("text") or "")
         suggestion = flag.get("suggestion")
+        reason = flag.get("reason")
+
+        paragraph = doc.add_paragraph(style="TC Review Flag")
+        title_run = paragraph.add_run(f"{flag_id or '复核项'} [{severity}] ")
+        title_run.bold = True
+        paragraph.add_run(_plain_text(text))
         if suggestion:
-            paragraph.add_run(f"；建议：{suggestion}")
+            paragraph.add_run(f" -> {_plain_text(str(suggestion))}")
+        if reason and export_format == "printable":
+            paragraph.add_run(f"（{_plain_text(str(reason))}）")
+
+        if export_format == "archive":
+            detail_items = [
+                f"类别：{flag.get('category')}" if flag.get("category") else "",
+                f"状态：{flag.get('status')}" if flag.get("status") else "",
+                f"段落：{flag.get('pid')}" if flag.get("pid") else "",
+                f"分块：{flag.get('chunk_id')}" if flag.get("chunk_id") else "",
+                f"原因：{reason}" if reason else "",
+            ]
+            detail = "；".join(_plain_text(item) for item in detail_items if item)
+            if detail:
+                _add_review_detail(doc, detail)
 
 
-def _add_classics(doc: Document, refs: list[dict[str, Any]]) -> None:
-    doc.add_heading("古文原文与资料", level=1)
+def _add_classics(
+    doc: Document,
+    refs: list[dict[str, Any]],
+    export_format: str,
+) -> None:
+    _add_section_heading(doc, "古文原文与资料")
     matched_refs = [ref for ref in refs if ref.get("matched")]
     if not matched_refs:
         _add_low_key_paragraph(doc, "暂无已匹配的古文资料。")
@@ -195,12 +260,19 @@ def _add_classics(doc: Document, refs: list[dict[str, Any]]) -> None:
         title = ref.get("title") or ref.get("ref_id") or "古文引用"
         writer = f" - {ref['writer']}" if ref.get("writer") else ""
         doc.add_heading(f"{title}{writer}", level=2)
-        _add_classics_block(doc, "原文", ref.get("canonical_text"))
+        _add_classics_block(doc, "原文", ref.get("canonical_text"), quote=True)
         _add_classics_block(doc, "译文", ref.get("translation"))
         _add_classics_block(doc, "注释", ref.get("remark"))
         _add_classics_block(doc, "赏析", ref.get("shangxi"))
-        if ref.get("diffs"):
-            _add_quote(doc, "存在课稿与权威文本差异，已纳入复核标记。")
+        _add_classics_source(doc, ref, export_format)
+        if export_format == "archive" and ref.get("diffs"):
+            doc.add_heading("复核差异", level=3)
+            for diff in ref.get("diffs", []):
+                if isinstance(diff, dict):
+                    raw = diff.get("raw") or ""
+                    canonical = diff.get("canonical") or ""
+                    pid = f"（{diff.get('pid')}）" if diff.get("pid") else ""
+                    _add_review_detail(doc, f"{pid}{raw} -> {canonical}")
 
 
 def _add_archive_notes(doc: Document, course_state: dict[str, Any]) -> None:
@@ -231,38 +303,100 @@ def _add_archive_notes(doc: Document, course_state: dict[str, Any]) -> None:
         _add_quote(doc, str(risk))
 
 
-def _add_classics_block(doc: Document, label: str, text: Any) -> None:
+def _add_classics_block(
+    doc: Document,
+    label: str,
+    text: Any,
+    *,
+    quote: bool = False,
+) -> None:
     if not text:
         return
     doc.add_heading(label, level=3)
     for paragraph in str(text).splitlines():
         if paragraph.strip():
-            _add_quote(doc, paragraph.strip())
+            if quote:
+                _add_quote(doc, paragraph.strip())
+            else:
+                _add_markdown_paragraph(doc, paragraph.strip())
+
+
+def _add_classics_source(
+    doc: Document,
+    ref: dict[str, Any],
+    export_format: str,
+) -> None:
+    source_items = [
+        f"资料库：{ref.get('source')}" if ref.get("source") else "",
+        f"朝代：{ref.get('dynasty')}" if ref.get("dynasty") else "",
+    ]
+    if export_format == "archive":
+        source_items.extend(
+            [
+                f"链接：{ref.get('ref_url')}" if ref.get("ref_url") else "",
+                f"引用 ID：{ref.get('ref_id')}" if ref.get("ref_id") else "",
+                f"分块：{ref.get('chunk_id')}" if ref.get("chunk_id") else "",
+                (
+                    f"置信度：{ref.get('confidence'):.0%}"
+                    if isinstance(ref.get("confidence"), int | float)
+                    else ""
+                ),
+            ]
+        )
+    source = "；".join(item for item in source_items if item)
+    if source:
+        doc.add_heading("来源", level=3)
+        doc.add_paragraph(_plain_text(source), style="TC Source")
 
 
 def _append_markdown(doc: Document, markdown: str, *, base_level: int) -> None:
-    for raw_line in markdown.splitlines():
+    for raw_line in _normalize_markup(markdown).splitlines():
         line = raw_line.rstrip()
         if not line.strip():
             continue
         heading = re.match(r"^(#{1,6})\s+(.+)$", line)
         if heading:
-            level = min(4, base_level + len(heading.group(1)) - 1)
+            level = _markdown_heading_level(len(heading.group(1)), base_level)
             doc.add_heading(_plain_text(heading.group(2)), level=level)
             continue
         bullet = re.match(r"^\s*[-*]\s+(.+)$", line)
         if bullet:
-            doc.add_paragraph(_plain_text(bullet.group(1)), style="List Bullet")
+            _add_markdown_paragraph(doc, bullet.group(1), style="List Bullet")
             continue
         numbered = re.match(r"^\s*\d+[.)]\s+(.+)$", line)
         if numbered:
-            doc.add_paragraph(_plain_text(numbered.group(1)), style="List Number")
+            _add_markdown_paragraph(doc, numbered.group(1), style="List Number")
             continue
         quote = re.match(r"^\s*>\s+(.+)$", line)
         if quote:
-            _add_quote(doc, _plain_text(quote.group(1)))
+            _add_quote(doc, quote.group(1))
             continue
-        _add_paragraphs(doc, _plain_text(line))
+        _add_markdown_paragraph(doc, line)
+
+
+def _markdown_heading_level(hash_count: int, base_level: int) -> int:
+    if hash_count <= 2:
+        return base_level
+    return min(4, base_level + hash_count - 2)
+
+
+def _normalize_markup(text: str) -> str:
+    normalized = str(text)
+    normalized = re.sub(
+        r"<h([1-6])[^>]*>(.*?)</h\1>",
+        lambda match: "\n" + "#" * int(match.group(1)) + " " + match.group(2) + "\n",
+        normalized,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    normalized = re.sub(
+        r"<p[^>]*>(.*?)</p>",
+        lambda match: "\n" + match.group(1) + "\n",
+        normalized,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    normalized = re.sub(r"<br\s*/?>", "\n", normalized, flags=re.IGNORECASE)
+    normalized = re.sub(r"</?(strong|b)>", "**", normalized, flags=re.IGNORECASE)
+    return normalized
 
 
 def _add_paragraphs(doc: Document, text: Any) -> None:
@@ -270,17 +404,17 @@ def _add_paragraphs(doc: Document, text: Any) -> None:
         return
     for paragraph in str(text).splitlines():
         if paragraph.strip():
-            doc.add_paragraph(_plain_text(paragraph.strip()))
+            _add_markdown_paragraph(doc, paragraph.strip())
 
 
 def _add_bullets(doc: Document, items: Iterable[Any]) -> None:
     for item in items:
         if item:
-            doc.add_paragraph(_plain_text(str(item)), style="List Bullet")
+            _add_markdown_paragraph(doc, str(item), style="List Bullet")
 
 
 def _add_quote(doc: Document, text: str) -> None:
-    doc.add_paragraph(_plain_text(text), style="TC Quote")
+    _add_markdown_paragraph(doc, text, style="TC Quote")
 
 
 def _add_low_key_paragraph(doc: Document, text: str) -> None:
@@ -288,11 +422,59 @@ def _add_low_key_paragraph(doc: Document, text: str) -> None:
         doc.add_paragraph(_plain_text(text), style="TC Low Key")
 
 
+def _add_review_detail(doc: Document, text: str) -> None:
+    if text:
+        paragraph = doc.add_paragraph(style="TC Review Flag")
+        paragraph.paragraph_format.left_indent = Inches(0.24)
+        paragraph.add_run(_plain_text(text))
+
+
+def _add_markdown_paragraph(doc: Document, text: Any, *, style: str | None = None):
+    paragraph = doc.add_paragraph(style=style)
+    _add_inline_runs(paragraph, str(text))
+    return paragraph
+
+
+def _add_inline_runs(paragraph, text: str) -> None:
+    pattern = re.compile(r"(\*\*.+?\*\*|`.+?`|\*[^*]+\*)")
+    position = 0
+    for match in pattern.finditer(text):
+        if match.start() > position:
+            paragraph.add_run(_inline_text(text[position : match.start()]))
+        token = match.group(0)
+        if token.startswith("**"):
+            run = paragraph.add_run(_inline_text(token[2:-2]))
+            run.bold = True
+        elif token.startswith("`"):
+            run = paragraph.add_run(_inline_text(token[1:-1]))
+            run.font.name = "Courier New"
+            run._element.rPr.rFonts.set(qn("w:eastAsia"), "Courier New")
+        else:
+            run = paragraph.add_run(_inline_text(token[1:-1]))
+            run.italic = True
+        position = match.end()
+    if position < len(text):
+        paragraph.add_run(_inline_text(text[position:]))
+
+
+def _add_section_heading(doc: Document, text: str) -> None:
+    if any(paragraph.text.strip() for paragraph in doc.paragraphs):
+        spacer = doc.add_paragraph()
+        spacer.paragraph_format.space_after = Pt(2)
+    doc.add_heading(text, level=1)
+
+
 def _plain_text(text: str) -> str:
+    return _inline_text(text).strip()
+
+
+def _inline_text(text: str) -> str:
+    text = html.unescape(str(text))
+    text = re.sub(r"<[^>]+>", "", text)
     text = re.sub(r"`([^`]+)`", r"\1", text)
     text = re.sub(r"\*\*([^*]+)\*\*", r"\1", text)
     text = re.sub(r"\*([^*]+)\*", r"\1", text)
-    return text.strip()
+    return text
 
 
 def _ensure_paragraph_style(
@@ -310,6 +492,14 @@ def _ensure_paragraph_style(
     style.font.name = "Arial"
     style._element.rPr.rFonts.set(qn("w:eastAsia"), "Microsoft YaHei")
     return style
+
+
+def _set_font(style, *, size: Pt, bold: bool = False) -> None:
+    style.font.name = "Arial"
+    style._element.rPr.rFonts.set(qn("w:eastAsia"), "Microsoft YaHei")
+    style.font.size = size
+    style.font.bold = bold
+    style.font.color.rgb = RGBColor(31, 31, 31)
 
 
 def _set_cell_shading(cell, fill: str) -> None:
