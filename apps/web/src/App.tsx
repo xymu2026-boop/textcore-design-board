@@ -2,6 +2,7 @@ import { type MouseEvent, type ReactNode, useCallback, useEffect, useMemo, useRe
 
 import {
   ApiError,
+  getAssets,
   getCourse,
   listCourses,
   requestExport,
@@ -9,6 +10,10 @@ import {
   uploadCourse,
 } from "./api/client";
 import type {
+  AssetKnowledgeCard,
+  AssetSource,
+  AssetsResponse,
+  AssetWritingMaterial,
   ClassicsRef,
   CourseListItem,
   CourseState,
@@ -112,6 +117,16 @@ const STATUS_HINTS: Partial<Record<CourseStatus, string>> = {
   created: "等待处理",
   processing: "正在生成，暂不可导出",
   failed: "处理失败",
+};
+
+const CARD_TYPE_LABELS: Record<KnowledgeCard["type"], string> = {
+  method: "方法",
+  person: "人物",
+  event: "事件",
+  concept: "概念",
+  work: "作品",
+  theme: "主题",
+  mistake: "易错点",
 };
 
 const PIPELINE_STAGES = ["S0", "S1", "S2", "S3", "S4", "S5", "S6", "S7", "S8", "S9", "S10"] as const;
@@ -2588,31 +2603,57 @@ function ResourceList({
 
 type AssetTab = "methods" | "words" | "materials";
 
-const ASSET_TAB_COPY: Record<AssetTab, { label: string; emptyTitle: string; emptyMessage: string; courseHint: string }> = {
+const EMPTY_ASSETS: AssetsResponse = { cards: [], materials: [], vocab: [] };
+
+const ASSET_TAB_COPY: Record<AssetTab, { label: string; emptyTitle: string; emptyMessage: string }> = {
   methods: {
     label: "方法卡片库",
     emptyTitle: "还没有聚合后的方法卡片",
-    emptyMessage: "阶段三 C1 后端聚合 API 完成后，这里会从所有课程汇总阅读方法、文言方法和常见题型卡片。",
-    courseHint: "从单课详情查看知识卡片",
+    emptyMessage: "完成课程处理后，这里会从所有真实 course_state 汇总知识卡片。",
   },
   words: {
     label: "词汇生词本",
     emptyTitle: "还没有跨课程生词本",
-    emptyMessage: "当前版本不在前端拼接词条。完成课程处理后，可以先进入单课详情查看旁征博引和相关知识卡片。",
-    courseHint: "从单课详情查看词句来源",
+    emptyMessage: "当前版本先从 concept/work 类知识卡片临时生成词汇本。",
   },
   materials: {
     label: "佳句素材册",
     emptyTitle: "还没有聚合后的佳句素材",
-    emptyMessage: "阶段三会由后端汇总写作素材、主题表达和佳句出处；本页暂时只提供课程入口，不造假资产。",
-    courseHint: "从单课详情查看作文素材",
+    emptyMessage: "完成 S8 作文素材抽取后，这里会汇总主题表达、佳句和使用建议。",
   },
 };
 
 function AssetsPage({ courses }: { courses: CourseListItem[] }) {
   const [assetTab, setAssetTab] = useState<AssetTab>("methods");
+  const [assets, setAssets] = useState<AssetsResponse>(EMPTY_ASSETS);
+  const [assetStatus, setAssetStatus] = useState<LoadStatus>("idle");
+  const [assetError, setAssetError] = useState("");
   const currentCopy = ASSET_TAB_COPY[assetTab];
   const entryCourses = courses.filter((course) => course.status === "completed" || course.status === "needs_human");
+  const hasAnyAssets = assets.cards.length + assets.materials.length + assets.vocab.length > 0;
+
+  const refreshAssets = useCallback(() => {
+    setAssetStatus("loading");
+    getAssets()
+      .then((payload) => {
+        setAssets({
+          cards: payload.cards ?? [],
+          materials: payload.materials ?? [],
+          vocab: payload.vocab ?? [],
+        });
+        setAssetError("");
+        setAssetStatus("success");
+      })
+      .catch((error: unknown) => {
+        setAssets(EMPTY_ASSETS);
+        setAssetError(errorDetail(error) || "请确认后端服务可访问后重试。");
+        setAssetStatus("error");
+      });
+  }, []);
+
+  useEffect(() => {
+    refreshAssets();
+  }, [refreshAssets]);
 
   return (
     <section className="asset-page">
@@ -2620,55 +2661,235 @@ function AssetsPage({ courses }: { courses: CourseListItem[] }) {
         <div>
           <p className="page-kicker">知识沉淀</p>
           <h1 className="page-title">知识资产库</h1>
-          <p className="muted">先从已处理课程进入单课资源；跨课程聚合等待阶段三后端 API。</p>
+          <p className="muted">跨课程汇总知识卡片、词汇卡片和写作素材，全部来自真实 course_state。</p>
         </div>
-        <button className="button-primary" onClick={() => navigateTo({ name: "courses" })} type="button">
-          打开课稿库
+        <button className="button-primary" disabled={assetStatus === "loading"} onClick={refreshAssets} type="button">
+          {assetStatus === "loading" ? "刷新中" : "刷新资产"}
         </button>
+      </div>
+      <div className="asset-summary-row" aria-label="知识资产统计">
+        <span className="tag">{assets.cards.length} 张卡片</span>
+        <span className="tag">{assets.vocab.length} 条词汇</span>
+        <span className="tag">{assets.materials.length} 条素材</span>
       </div>
       <div className="asset-tabs">
         {(Object.keys(ASSET_TAB_COPY) as AssetTab[]).map((tab) => (
           <button className={assetTab === tab ? "active" : ""} key={tab} onClick={() => setAssetTab(tab)} type="button">
             {ASSET_TAB_COPY[tab].label}
+            <span>{assetCountForTab(assets, tab)}</span>
           </button>
         ))}
       </div>
-      <div className="asset-empty-layout">
-        <section className="empty-panel asset-empty-panel">
-          <span className="asset-empty-icon" aria-hidden="true">□</span>
-          <h2>{currentCopy.emptyTitle}</h2>
-          <p className="muted">{currentCopy.emptyMessage}</p>
-          <button className="button-secondary" onClick={() => navigateTo({ name: "courses" })} type="button">
-            从课程进入
-          </button>
-        </section>
-        <section className="asset-course-panel">
-          <div className="section-row compact-row">
-            <h2 className="section-heading">课程入口</h2>
-            <span className="tag">{entryCourses.length} 篇可查看</span>
-          </div>
-          {entryCourses.length > 0 ? (
-            <div className="asset-course-list">
-              {entryCourses.slice(0, 6).map((course) => (
-                <article className="asset-course-entry" key={course.course_id}>
-                  <div>
-                    <h3>{course.title}</h3>
-                    <p className="muted">{[course.subtitle, course.teacher, course.type].filter(Boolean).join(" · ") || course.course_id}</p>
-                  </div>
-                  <span className={`tag status-${course.status}`}>{STATUS_LABELS[course.status]}</span>
-                  <button className="tiny-button" onClick={() => navigateTo({ name: "detail", courseId: course.course_id })} type="button">
-                    {currentCopy.courseHint}
-                  </button>
-                </article>
-              ))}
-            </div>
-          ) : (
-            <StatePanel message="完成课程处理后，这里会列出可进入详情页查看资源的真实课程。" title="暂无可用课程入口" />
-          )}
-        </section>
-      </div>
+      {assetStatus === "loading" && !hasAnyAssets ? (
+        <StatePanel message="正在读取后端聚合投影。" title="正在加载知识资产" />
+      ) : null}
+      {assetStatus === "error" && !hasAnyAssets ? (
+        <StatePanel message={assetError} onAction={refreshAssets} title="知识资产加载失败" />
+      ) : null}
+      {(assetStatus === "success" || hasAnyAssets) && (
+        <AssetTabContent
+          assets={assets}
+          assetTab={assetTab}
+          currentCopy={currentCopy}
+          entryCourses={entryCourses}
+        />
+      )}
     </section>
   );
+}
+
+function AssetTabContent({
+  assets,
+  assetTab,
+  currentCopy,
+  entryCourses,
+}: {
+  assets: AssetsResponse;
+  assetTab: AssetTab;
+  currentCopy: (typeof ASSET_TAB_COPY)[AssetTab];
+  entryCourses: CourseListItem[];
+}) {
+  if (assetTab === "methods" && assets.cards.length > 0) {
+    return (
+      <div className="asset-groups">
+        {groupCardsByType(assets.cards).map(({ type, items }) => (
+          <section className="asset-group" key={type}>
+            <div className="section-row compact-row">
+              <h2 className="section-heading">{CARD_TYPE_LABELS[type]}</h2>
+              <span className="tag">{items.length} 张</span>
+            </div>
+            <div className="asset-grid">
+              {items.map((card) => (
+                <AssetKnowledgeCardView card={card} key={`${card.source.course_id}-${card.card_id}-${card.title}`} />
+              ))}
+            </div>
+          </section>
+        ))}
+      </div>
+    );
+  }
+
+  if (assetTab === "words" && assets.vocab.length > 0) {
+    return (
+      <div className="asset-grid">
+        {assets.vocab.map((card) => (
+          <AssetVocabCardView card={card} key={`${card.source.course_id}-${card.card_id}-${card.title}`} />
+        ))}
+      </div>
+    );
+  }
+
+  if (assetTab === "materials" && assets.materials.length > 0) {
+    return (
+      <div className="asset-grid">
+        {assets.materials.map((material) => (
+          <AssetMaterialCardView
+            key={`${material.source.course_id}-${material.material_id}-${material.title}`}
+            material={material}
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return <AssetEmptyState currentCopy={currentCopy} entryCourses={entryCourses} />;
+}
+
+function AssetKnowledgeCardView({ card }: { card: AssetKnowledgeCard }) {
+  return (
+    <article className="asset-card">
+      <div className="asset-card-head">
+        <span className="tag">{CARD_TYPE_LABELS[card.type]}</span>
+        <SourceCourseButton source={card.source} />
+      </div>
+      <h3>{card.title}</h3>
+      <p className="muted">{compactText(card.summary ?? card.example ?? card.core_points?.join("；"))}</p>
+      {card.core_points?.length ? (
+        <ul>
+          {card.core_points.slice(0, 4).map((point) => (
+            <li key={point}>{point}</li>
+          ))}
+        </ul>
+      ) : null}
+      <AssetChunkMeta chunks={card.source_chunks} />
+    </article>
+  );
+}
+
+function AssetVocabCardView({ card }: { card: AssetKnowledgeCard }) {
+  return (
+    <article className="asset-card work-asset-card">
+      <div className="asset-card-head">
+        <span className="tag">{CARD_TYPE_LABELS[card.type]}</span>
+        <SourceCourseButton source={card.source} />
+      </div>
+      <h3>{card.title}</h3>
+      <p className="muted">{compactText(card.summary ?? card.example ?? card.core_points?.join("；"))}</p>
+      {card.related_persons?.length || card.related_themes?.length ? (
+        <div className="work-meta-list">
+          {card.related_persons?.length ? <span>人物：{card.related_persons.join("、")}</span> : null}
+          {card.related_themes?.length ? <span>主题：{card.related_themes.join("、")}</span> : null}
+        </div>
+      ) : null}
+      <AssetChunkMeta chunks={card.source_chunks} />
+    </article>
+  );
+}
+
+function AssetMaterialCardView({ material }: { material: AssetWritingMaterial }) {
+  return (
+    <article className="asset-card">
+      <div className="asset-card-head">
+        <span className={`tag risk-${material.risk ?? "low"}`}>{material.risk ?? "low"}</span>
+        <SourceCourseButton source={material.source} />
+      </div>
+      <h3>{material.title}</h3>
+      {material.usable_expression ? <p className="work-quote">{material.usable_expression}</p> : null}
+      <p className="muted">
+        {compactText(material.usage_suggestion ?? material.teacher_comment ?? material.material_source)}
+      </p>
+      {material.theme?.length ? <div className="asset-tag-row">{material.theme.map((theme) => <span className="tag" key={theme}>{theme}</span>)}</div> : null}
+      <AssetChunkMeta chunks={material.source_chunks} />
+    </article>
+  );
+}
+
+function AssetChunkMeta({ chunks }: { chunks?: string[] }) {
+  if (!chunks?.length) return null;
+  return <p className="source-chunk-meta">关联 {chunks.map(chunkLabel).join("、")}</p>;
+}
+
+function SourceCourseButton({ source }: { source: AssetSource }) {
+  return (
+    <button
+      className="source-link asset-source-button"
+      onClick={() => navigateTo({ name: "detail", courseId: source.course_id })}
+      type="button"
+    >
+      来源课程：{source.course_title}
+    </button>
+  );
+}
+
+function AssetEmptyState({
+  currentCopy,
+  entryCourses,
+}: {
+  currentCopy: (typeof ASSET_TAB_COPY)[AssetTab];
+  entryCourses: CourseListItem[];
+}) {
+  return (
+    <div className="asset-empty-layout">
+      <section className="empty-panel asset-empty-panel">
+        <span className="asset-empty-icon" aria-hidden="true">□</span>
+        <h2>{currentCopy.emptyTitle}</h2>
+        <p className="muted">{currentCopy.emptyMessage}</p>
+        <button className="button-secondary" onClick={() => navigateTo({ name: "courses" })} type="button">
+          从课程进入
+        </button>
+      </section>
+      <section className="asset-course-panel">
+        <div className="section-row compact-row">
+          <h2 className="section-heading">课程入口</h2>
+          <span className="tag">{entryCourses.length} 篇可查看</span>
+        </div>
+        {entryCourses.length > 0 ? (
+          <div className="asset-course-list">
+            {entryCourses.slice(0, 6).map((course) => (
+              <article className="asset-course-entry" key={course.course_id}>
+                <div>
+                  <h3>{course.title}</h3>
+                  <p className="muted">{[course.subtitle, course.teacher, course.type].filter(Boolean).join(" · ") || course.course_id}</p>
+                </div>
+                <span className={`tag status-${course.status}`}>{STATUS_LABELS[course.status]}</span>
+                <button className="tiny-button" onClick={() => navigateTo({ name: "detail", courseId: course.course_id })} type="button">
+                  查看课程资源
+                </button>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <StatePanel message="完成课程处理后，这里会列出可进入详情页查看资源的真实课程。" title="暂无可用课程入口" />
+        )}
+      </section>
+    </div>
+  );
+}
+
+function groupCardsByType(cards: AssetKnowledgeCard[]): Array<{ type: KnowledgeCard["type"]; items: AssetKnowledgeCard[] }> {
+  const groups = new Map<KnowledgeCard["type"], AssetKnowledgeCard[]>();
+  cards.forEach((card) => {
+    const items = groups.get(card.type) ?? [];
+    items.push(card);
+    groups.set(card.type, items);
+  });
+  return Array.from(groups, ([type, items]) => ({ type, items }));
+}
+
+function assetCountForTab(assets: AssetsResponse, tab: AssetTab): number {
+  if (tab === "methods") return assets.cards.length;
+  if (tab === "words") return assets.vocab.length;
+  return assets.materials.length;
 }
 
 export function App() {

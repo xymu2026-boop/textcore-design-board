@@ -2148,14 +2148,48 @@ a {
   overflow: hidden;
 }
 
+.asset-summary-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: -8px;
+}
+
 .asset-tabs {
   gap: 34px;
   margin: 18px 0 26px;
 }
 
 .asset-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   min-height: 54px;
   font-size: 17px;
+}
+
+.asset-tabs button span {
+  min-width: 28px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.asset-tabs button.active span {
+  background: rgba(184, 58, 37, 0.12);
+  color: var(--color-primary);
+}
+
+.asset-groups {
+  display: grid;
+  gap: 34px;
+}
+
+.asset-group .section-heading {
+  font-size: 23px;
 }
 
 .asset-grid {
@@ -2165,7 +2199,7 @@ a {
 .asset-card {
   min-height: 270px;
   padding: 24px 24px 26px;
-  cursor: pointer;
+  cursor: default;
 }
 
 .asset-card h3 {
@@ -2180,6 +2214,49 @@ a {
 
 .asset-card li {
   margin: 7px 0;
+}
+
+.asset-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.asset-source-button {
+  max-width: 62%;
+  justify-content: flex-end;
+  padding: 0;
+  text-align: right;
+  white-space: normal;
+}
+
+.asset-tag-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 14px;
+}
+
+.asset-card .source-chunk-meta {
+  display: block;
+  margin-top: 14px;
+}
+
+.risk-low {
+  color: #376f52;
+  background: rgba(77, 154, 115, 0.12);
+}
+
+.risk-medium {
+  color: #86621c;
+  background: rgba(185, 138, 46, 0.14);
+}
+
+.risk-high {
+  color: #8a372f;
+  background: rgba(180, 74, 62, 0.14);
 }
 
 .work-asset-card {

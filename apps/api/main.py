@@ -14,6 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response, StreamingResponse
 from pydantic import BaseModel, Field
 
+from textcore.assets import aggregate_assets_from_repository
 from textcore.config import load_env
 from textcore.contracts.course_state import validate
 from textcore.exporters.docx_export import DEFAULT_EXPORT_SECTIONS, export_course_docx
@@ -95,6 +96,13 @@ def list_courses(
     repo: Annotated[CourseRepository, Depends(get_repository)],
 ) -> list[dict[str, object]]:
     return repo.list_courses()
+
+
+@app.get("/api/assets")
+def get_assets(
+    repo: Annotated[CourseRepository, Depends(get_repository)],
+) -> dict[str, list[dict[str, object]]]:
+    return aggregate_assets_from_repository(repo)
 
 
 @app.get("/api/courses/{course_id}")

@@ -100,6 +100,26 @@ export interface WritingMaterial {
   risk?: Risk;
 }
 
+export interface AssetSource {
+  course_id: string;
+  course_title: string;
+}
+
+export type AssetKnowledgeCard = KnowledgeCard & {
+  source: AssetSource;
+};
+
+export interface AssetWritingMaterial extends Omit<WritingMaterial, "source"> {
+  source: AssetSource;
+  material_source?: string;
+}
+
+export interface AssetsResponse {
+  cards: AssetKnowledgeCard[];
+  materials: AssetWritingMaterial[];
+  vocab: AssetKnowledgeCard[];
+}
+
 export interface ReviewFlag {
   flag_id?: string;
   pid?: string;

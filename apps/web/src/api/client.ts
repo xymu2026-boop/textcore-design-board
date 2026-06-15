@@ -1,4 +1,4 @@
-import type { CourseListItem, CourseState, StatusEvent } from "./types";
+import type { AssetsResponse, CourseListItem, CourseState, StatusEvent } from "./types";
 
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8000";
 const env = import.meta as ImportMeta & { env?: { VITE_API_BASE_URL?: string } };
@@ -48,6 +48,10 @@ export async function listCourses(): Promise<CourseListItem[]> {
 
 export async function getCourse(courseId: string): Promise<CourseState> {
   return requestJson<CourseState>(`/api/courses/${encodeURIComponent(courseId)}`);
+}
+
+export async function getAssets(): Promise<AssetsResponse> {
+  return requestJson<AssetsResponse>("/api/assets");
 }
 
 export async function uploadCourse(file: File): Promise<{ course_id: string }> {

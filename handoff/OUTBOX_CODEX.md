@@ -1,42 +1,84 @@
-# OUTBOX · Codex · A4 前端状态闭环
+# OUTBOX · Codex · ③ 知识资产聚合
 
 ## 改动范围
 
-- 只改 `apps/web/src/App.tsx` 与 `apps/web/src/styles.css`。
-- 未改 `apps/api`、`textcore`、`schemas`、`prompts`、`docs/prototype`。
-- 未提交 git。
+- 新增 `textcore/assets/aggregate.py` 与 `textcore/assets/__init__.py`。
+- 修改 `apps/api/main.py`，新增只读聚合端点。
+- 修改 `apps/web/src/App.tsx`、`apps/web/src/api/client.ts`、`apps/web/src/api/types.ts`、`apps/web/src/styles.css`，资产页接真实 API 数据。
+- 新增测试：`tests/unit/test_assets_aggregate.py`、`tests/integration/test_assets_api.py`。
+- 未改 `course_state` schema，未动 `textcore/pipeline/runner.py`、`textcore/pipeline/stages/`、`textcore/pipeline/deterministic/`，未提交 git。
 
-## 状态呈现
+## 聚合逻辑
 
-- 刷新恢复：详情页继续从 URL `course_id` 调 `getCourse(courseId)` 拉取；同一课程手动刷新状态时保留当前可见详情，不先清空页面。
-- `created` / `processing`：详情页显示“课程处理中”，导出按钮禁用；不渲染完成态正文、知识卡片和导出入口，改为处理进度、后端 `processing_log` 阶段列表、四档正文占位卡。
-- `failed`：详情页显示“处理失败，暂不可导出”，导出按钮禁用；显示失败阶段/消息，提供“刷新状态”和“重新上传课稿”入口。
-- 空态：课稿库/工作台仍使用真实 API 列表为空时的空面板，不造假数据。
-- 正常态：`completed` / `needs_human` 继续显示 A1-A3 的正文版本、资源侧栏、复核抽屉和导出入口。
+- `aggregate_assets_from_repository(repo)` 从 `repo.processed_dir/*/course_state.json` 读取所有可解析状态文件。
+- `aggregate_assets(states)` 纯聚合传入的 state dict：
+  - `cards`: 汇总所有 `knowledge_cards`，保留 `type`，按 `method/person/event/concept/work/theme/mistake` 顺序输出。
+  - `materials`: 汇总所有 `writing_materials`。
+  - `vocab`: 临时从聚合后的 `knowledge_cards` 中筛 `type in {"concept", "work"}`。
+- 每个资产项都有 `source: {course_id, course_title}`；课程名取 `source.detected_meta.course_title`，否则回退到 `source.file`/`course_id`。
+- 去重规则：同一 `title` 规范化后 + 同一 `course_id` 合并；列表字段如 `core_points/source_chunks/theme` 做稳定去重合并。
+- `writing_materials.source` 原本是素材出处字符串；聚合投影中保留为 `material_source`，统一把 `source` 用作课程来源对象。
+- 读取 processed 目录时跳过不可解析 JSON，避免后台批处理写入中的单个半文件打断整个资产页。
 
-## 行为闭环
+## API 形状
 
-- SSE：上传成功后继续消费 `/events`，按事件 `progress` 或阶段推断进度；连接中断进入 `interrupted` 状态，显示“进度连接中断”，并刷新课稿库，不让进度条卡死。
-- SSE 完成：收到完成事件后关闭连接、刷新列表，并自动跳转到新课程详情页。
-- 导出：导出弹窗提交时按钮禁用并显示“生成中...”；成功触发下载，文件名使用课程名 + 版本名；失败显示错误提示并保留“重试生成”。
-- 上一篇/下一篇：无可靠相邻上下文时已移除误导按钮，仅保留“返回课稿库”。
-- 健壮性：长课程名、原始文件名、表格文本可换行；资源抽屉列表增加滚动上限，复核项很多时不会撑破抽屉。
+- 新增 `GET /api/assets`。
+- 返回：
 
-## 主要组件变化
+```json
+{
+  "cards": [
+    {
+      "card_id": "...",
+      "title": "...",
+      "type": "method",
+      "source": { "course_id": "...", "course_title": "..." }
+    }
+  ],
+  "materials": [
+    {
+      "material_id": "...",
+      "title": "...",
+      "material_source": "课堂阅读讲评",
+      "source": { "course_id": "...", "course_title": "..." }
+    }
+  ],
+  "vocab": [
+    {
+      "card_id": "...",
+      "title": "...",
+      "type": "concept",
+      "source": { "course_id": "...", "course_title": "..." }
+    }
+  ]
+}
+```
 
-- `CourseDetail`：增加处理中轮询、非完成态分支、禁用导出文案、去掉上一篇/下一篇。
-- 新增 `CourseStatusPanel`：承载 processing/failed 的版本占位、进度条、阶段列表和重试入口。
-- `UploadPanel` / `ProgressPanel`：补进度 clamp、中断/失败/完成文案、同文件重选。
-- `ExportModal`：接收课程标题并生成安全下载文件名。
-- `CourseTable` / `App`：导出入口向弹窗传课程标题；上传 SSE 完成后自动导航。
+## 前端渲染
 
-## 验证
+- 资产页 `/assets` 挂载时调用 `getAssets()`。
+- 三个 Tab：
+  - 方法卡片库：渲染全部 `cards`，按 `type` 分组展示。
+  - 词汇生词本：渲染 `vocab`。
+  - 佳句素材册：渲染 `materials`。
+- 顶部显示聚合数量，支持“刷新资产”。
+- 加载失败显示可重试错误态。
+- 当前 Tab 无数据时显示友好空态，并保留已完成/待复核课程入口。
+- 每张卡的“来源课程”按钮跳转 `/courses/{course_id}`。
 
-- `cd apps/web && npm run check`：通过。
-- `cd apps/web && npm run build`：通过。
-- `git diff --check -- apps/web/src/App.tsx apps/web/src/styles.css`：通过。
+## 测试与验证
+
+- 新增聚合单测覆盖：跨课程来源、同标题同课程去重、列表字段合并、素材 `material_source` 投影、vocab 临时来源、tmp processed 目录读取。
+- 新增 API 测试覆盖：temp `CourseRepository` fixture 写入 course_state 后请求 `GET /api/assets`，不依赖实时 `data/processed`。
+- 已运行 `make check`：通过。
+  - web typecheck/lint：通过。
+  - backend ruff：通过。
+  - pytest：48 passed，1 个既有 `StarletteDeprecationWarning`。
+- 追加运行 `cd apps/web && npm run build`：通过。
+- 尝试本地浏览器 smoke：`make dev` 在当前沙箱无法绑定 `127.0.0.1:5173`，Vite 报 `EPERM`；因此未完成 Browser 页面目测验证。
 
 ## 遗留
 
-- in-app Browser smoke check未执行：本会话 Browser `iab` 不可用。已用 typecheck/lint/build 覆盖静态验证。
-- 详情页处理中轮询依赖后端 `GET /api/courses/{id}` 返回最新状态；如果后台进度只存在内存 SSE 而未落库，刷新恢复仍以详情 API 的状态为准。
+- 词汇生词本仍是临时投影：只从 `knowledge_cards` 的 `concept/work` 类型生成；未来如 schema 增加专门词汇字段，可替换该来源。
+- `GET /api/assets` 当前是文件扫描聚合，没有分页/搜索；后续资产规模扩大后可再加索引或查询参数。
+- `make dev` 现有命令在 `apps/api` 目录启动 `main:app` 时没有仓库根在 `PYTHONPATH`，本次尝试暴露为 `ModuleNotFoundError: No module named 'textcore'`；本任务未修改 Makefile。

@@ -1,28 +1,30 @@
-# INBOX · Codex · ② A4 前端状态闭环（只动 apps/web，与后台批处理并行）
+# INBOX · Codex · ③ 知识资产库聚合（后端聚合 API + 前端展示）
 
-> 分支 `pipeline-fusion`（已含前端 A1-A3）。**只碰 `apps/web/`**。不动 apps/api、textcore、schemas（后台正在跑批处理，勿碰流水线/数据）。**不提交 git**。结果写 `handoff/OUTBOX_CODEX.md`，`LOG.md` 追加一行。
+> 分支 `pipeline-fusion`。碰 `textcore/`(新增聚合模块)、`apps/api/main.py`(新端点)、`apps/web/`(资产页)。**不动 schema(course_state)、不动 runner/流水线 stage**（后台批处理正在用流水线，勿碰）。**不提交 git**。结果写 OUTBOX，LOG 追加。
 
 ## 背景
-前端详情/列表/工作台/资产页已做（A1-A3）。本步补"状态闭环"，让前端在真实使用中各种状态都稳。先读现有 `apps/web/src/App.tsx` 评估已有覆盖，再补缺口。
+知识资产页目前只有入口+空态。现在批处理正在把 ~18 篇课的 knowledge_cards/writing_materials 写进各 course_state。本步做"跨课聚合"，把它们汇总成可浏览的资产库。
 
-## 范围（只动 apps/web）
-1. **刷新恢复**：详情页刷新后能凭 URL 的 course_id 从 API 重新拉取，不丢状态（确认已有/补齐）。
-2. **处理中/失败态**：
-   - 课程 status=processing/created：详情页显示"处理中"，正文版本区给占位/进度，导出等按钮禁用，不显示"假完成"。
-   - status=failed：明确显示"处理失败"，给重试入口（重新上传/重处理提示）。
-3. **SSE 进度**：上传后进度条消费 SSE；连接中断显示可理解提示（"进度连接中断"），不卡死；完成后自动跳到课程。
-4. **导出体验**：导出中(禁用按钮+loading)、成功(下载，文件名含课程名)、失败(提示+重试)。
-5. **上一篇/下一篇**：若无可靠相邻上下文，弱化为"返回课稿库"，避免误导性跳转。
-6. **健壮性细节**：长标题折行不撑破；复核项很多时抽屉可滚动不崩。
+## 范围
+1. **后端聚合** `textcore/assets/aggregate.py`(新模块,纯函数):
+   - 读所有 course_state(经 repository 或扫 data/processed/*/course_state.json)。
+   - 汇总：
+     - 方法卡片库 = 所有 knowledge_cards，按 type 分组(method/person/event/concept/work/theme/mistake)，每条带来源 course_id+课程名。
+     - 佳句素材册 = 所有 writing_materials，带来源。
+     - 词汇生词本 = 暂用 knowledge_cards 里 type in (concept, work) 或文言字词类(没有专门字段就先用 concept)，带来源；无则空。
+   - 去重(同标题同来源合并)。
+2. **API** `apps/api/main.py` 新增 `GET /api/assets`：返回 `{cards:[...], materials:[...], vocab:[...]}`，每项含 source(course_id, course_title)。**不改 course_state schema**；这是只读聚合投影。
+3. **前端** `apps/web` 资产页：三个 Tab(方法卡片库/词汇生词本/佳句素材册)从 `GET /api/assets` 渲染真实聚合数据；空时友好空态；卡片点"来源课程"可跳详情。
 
 ## 不做 / 边界
-- 不碰 apps/api、textcore、schemas、prompts、docs/prototype（只读参照）。
-- 不引入硬编码业务数据（数据只来自真实 API）。不提交 git。
+- 不改 course_state schema、不动 textcore/pipeline/(runner/stages)、不动 deterministic 模块(批处理在用)。
+- 不引入硬编码假资产(数据全来自真实 course_state)。不提交 git。
+- 测试用 fixture/tmp 数据，**不要依赖 data/processed 实时内容**(批处理在写)。
 
 ## 验收
-- `cd apps/web && npm run check` + `npm run build` 通过。
-- processing/failed/空/正常 四态详情页各有合理呈现；导出三态；刷新恢复；SSE 中断有提示。
+- `make check` 全绿(新增聚合单测 + API 测试用 fixture)。
+- `GET /api/assets` 返回聚合结构；前端资产页能渲染(有数据时列出，空时空态)。
 
 ## 完成后
-- `OUTBOX_CODEX.md`：各状态如何呈现、改了哪些组件、与之前的差异、check/build 结果、遗留。
-- `LOG.md` 追加：`[时间] CODEX: A4 前端状态闭环 完成`。
+- `OUTBOX_CODEX.md`：聚合逻辑、API 形状、前端渲染、测试、make check 结果、遗留(如词汇本数据来源)。
+- `LOG.md` 追加：`[时间] CODEX: ③ 知识资产聚合 完成`。
