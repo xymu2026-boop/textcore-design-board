@@ -465,6 +465,7 @@ a {
   gap: 10px;
 }
 
+.steps .step small,
 .status-steps .step small {
   display: block;
   margin-top: 2px;

@@ -37,10 +37,11 @@ def test_pipeline_s4_s8_with_mock_provider_and_classics_service(tmp_path: Path) 
 
     provider = MockProvider(_mock_response)
     client = LLMClient(provider)
+    broker = StatusEventBroker()
     asyncio.run(
         run_fake_pipeline(
             repository=repo,
-            events=StatusEventBroker(),
+            events=broker,
             course_id=course_id,
             source_filename="sample.docx",
             source_path=source_path,
@@ -75,6 +76,30 @@ def test_pipeline_s4_s8_with_mock_provider_and_classics_service(tmp_path: Path) 
     assert _count_prompt_calls(provider, "S7 学习整理版生成") == 0
     assert _count_prompt_calls(provider, "S7 四档版本生成") == 0
     assert _count_prompt_calls(provider, "S4 元数据抽取") == len(state["chunk_results"])
+
+    events = asyncio.run(_collect_events(broker, course_id))
+    s4_chunk_events = [
+        event for event in events if event["stage"] == "S4" and "chunk_index" in event
+    ]
+    s7_chunk_events = [
+        event for event in events if event["stage"] == "S7" and "chunk_index" in event
+    ]
+    expected_chunk_indexes = list(range(1, len(state["chunk_results"]) + 1))
+    assert [event["chunk_index"] for event in s4_chunk_events] == expected_chunk_indexes
+    assert [event["chunk_total"] for event in s4_chunk_events] == [
+        len(state["chunk_results"])
+    ] * len(state["chunk_results"])
+    assert [event["chunk_index"] for event in s7_chunk_events] == expected_chunk_indexes
+    assert "清洗" in s4_chunk_events[-1]["message"]
+    assert "精简" in s7_chunk_events[-1]["message"]
+    assert (
+        tmp_path
+        / "data"
+        / "processed"
+        / course_id
+        / "partial"
+        / "S7.json"
+    ).exists()
 
 
 def test_s4_uses_deterministic_cleaned_text_and_metadata_only_response() -> None:
@@ -387,6 +412,16 @@ def _json(payload: dict[str, object]) -> str:
 
 def _count_prompt_calls(provider: MockProvider, needle: str) -> int:
     return sum(1 for system, _user in provider.calls if needle in system)
+
+
+async def _collect_events(
+    broker: StatusEventBroker,
+    course_id: str,
+) -> list[dict[str, object]]:
+    events: list[dict[str, object]] = []
+    async for event in broker.stream(course_id):
+        events.append(event)
+    return events
 
 
 def _s4_fixture(

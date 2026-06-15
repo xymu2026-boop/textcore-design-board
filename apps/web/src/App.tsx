@@ -628,6 +628,29 @@ function progressForStatusEvent(event: StatusEvent, fallback: number): number {
   return Math.max(stageProgress(event.stage, event.stage_status), fallback);
 }
 
+function chunkProgressLabel(event: StatusEvent): string | undefined {
+  if (
+    typeof event.chunk_index !== "number" ||
+    typeof event.chunk_total !== "number" ||
+    event.chunk_index < 1 ||
+    event.chunk_total < 1
+  ) {
+    return undefined;
+  }
+  return `${event.chunk_index}/${event.chunk_total} 块`;
+}
+
+function statusEventDetail(event: StatusEvent): string | undefined {
+  const chunkLabel = chunkProgressLabel(event);
+  const rawMessage = event.message?.trim();
+  const stageMessage = `${event.stage} ${event.stage_status}`;
+  const message =
+    rawMessage && rawMessage !== event.stage_label && rawMessage !== stageMessage ? rawMessage : undefined;
+  if (!chunkLabel) return message;
+  if (message?.includes(chunkLabel)) return message;
+  return message ? `${message} · ${chunkLabel}` : chunkLabel;
+}
+
 function courseStatusEvents(course: CourseState): StatusEvent[] {
   const stages = course.processing_log?.stages ?? [];
   if (stages.length > 0) {
@@ -1148,14 +1171,18 @@ function ProgressPanel({ latestCourse, upload }: { latestCourse?: CourseListItem
         </div>
       ) : null}
       <div className="steps">
-        {events.slice(-6).map((event) => (
-          <div className={`step ${event.stage_status}`} key={`${event.stage}-${event.ts ?? event.message ?? ""}`}>
-            <span>{event.stage_status === "done" ? "✓" : event.stage_status === "failed" ? "!" : ""}</span>
-            <span>
-              {event.stage}：{event.stage_label ?? event.message ?? "处理中"}
-            </span>
-          </div>
-        ))}
+        {events.slice(-6).map((event) => {
+          const detail = statusEventDetail(event);
+          return (
+            <div className={`step ${event.stage_status}`} key={`${event.stage}-${event.ts ?? event.message ?? ""}`}>
+              <span>{event.stage_status === "done" ? "✓" : event.stage_status === "failed" ? "!" : ""}</span>
+              <span>
+                {event.stage}：{event.stage_label ?? event.message ?? "处理中"}
+                {detail ? <small>{detail}</small> : null}
+              </span>
+            </div>
+          );
+        })}
       </div>
       <button
         className="button-secondary"
@@ -1900,15 +1927,18 @@ function CourseStatusPanel({
       </div>
 
       <div className="status-steps">
-        {events.map((event) => (
-          <div className={`step ${event.stage_status}`} key={`${event.stage}-${event.ts ?? event.message ?? event.stage_status}`}>
-            <span>{event.stage_status === "done" ? "✓" : event.stage_status === "failed" ? "!" : ""}</span>
-            <span>
-              {event.stage}：{event.stage_label ?? event.message ?? "处理中"}
-              {event.message && event.message !== event.stage_label ? <small>{event.message}</small> : null}
-            </span>
-          </div>
-        ))}
+        {events.map((event) => {
+          const detail = statusEventDetail(event);
+          return (
+            <div className={`step ${event.stage_status}`} key={`${event.stage}-${event.ts ?? event.message ?? event.stage_status}`}>
+              <span>{event.stage_status === "done" ? "✓" : event.stage_status === "failed" ? "!" : ""}</span>
+              <span>
+                {event.stage}：{event.stage_label ?? event.message ?? "处理中"}
+                {detail ? <small>{detail}</small> : null}
+              </span>
+            </div>
+          );
+        })}
       </div>
 
       <footer className="status-actions">

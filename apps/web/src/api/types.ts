@@ -22,6 +22,8 @@ export interface StatusEvent {
   stage_status: StageStatus;
   overall_status?: CourseStatus;
   progress?: number;
+  chunk_index?: number;
+  chunk_total?: number;
   message?: string;
   ts?: string;
 }

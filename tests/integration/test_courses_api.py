@@ -67,6 +67,15 @@ def test_upload_list_detail_events_and_export(tmp_path: Path, monkeypatch) -> No
             assert [event["stage"] for event in events if event["stage_status"] == "done"] == list(
                 STAGES
             )
+            chunk_events = [event for event in events if "chunk_index" in event]
+            chunk_progress = [
+                (event["stage"], event["chunk_index"], event["chunk_total"])
+                for event in chunk_events
+            ]
+            assert chunk_progress == [
+                ("S4", 1, 1),
+                ("S7", 1, 1),
+            ]
             assert events[-1]["stage"] == "S10"
             assert events[-1]["overall_status"] == "completed"
 
