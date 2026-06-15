@@ -15,8 +15,8 @@ install:
 
 dev:
 	@trap 'kill 0' INT TERM EXIT; \
-	(cd apps/api && ../../$(VENV_PYTHON) -m uvicorn main:app --host 127.0.0.1 --port 8000) & \
-	(cd apps/web && npm run dev -- --host 127.0.0.1 --port 5173) & \
+	($(VENV_PYTHON) -m uvicorn main:app --host 127.0.0.1 --port 8000 --app-dir apps/api) & \
+	(cd apps/web && npm run dev -- --host 0.0.0.0 --port 5173) & \
 	wait
 
 check: check-web check-api
