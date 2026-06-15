@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://textcore.local/schemas/api/course_list_item.schema.json",
+  "title": "TextCore API · Course List Item",
+  "description": "课稿库列表页每行的投影（course_state 的子集）。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["course_id", "title", "status"],
+  "properties": {
+    "course_id": { "type": "string" },
+    "title": { "type": "string", "description": "课程标题，取自 source.detected_meta.course_title" },
+    "subtitle": { "type": "string" },
+    "teacher": { "type": "string" },
+    "type": { "type": "string", "description": "课型显示名（中文）" },
+    "status": { "type": "string", "enum": ["created", "processing", "completed", "failed", "needs_human"] },
+    "review_count": { "type": "integer", "minimum": 0, "description": "open 状态复核标记数" },
+    "updated_at": { "type": "string", "description": "更新时间显示串" }
+  }
+}

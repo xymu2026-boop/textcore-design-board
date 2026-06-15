@@ -69,3 +69,27 @@
 - 知识卡片和作文素材放右侧是否合适。
 - 原文对照默认收起、点击展开是否符合使用习惯。
 - Word 导出是否应以“简洁可打印材料”为主。
+
+## 开发
+
+本仓库已进入 Phase 0 工程脚手架阶段。当前代码只包含可运行占位，不包含业务逻辑。
+
+- 前端：`apps/web/`，Vite + React + TypeScript，占位空白首页。
+- 后端：`apps/api/`，FastAPI，占位 `/health` 路由。
+- Python 包：`textcore/`，保留 contracts、pipeline、llm、classics、exporters、storage 模块边界。
+- Python 依赖方案：`venv + requirements.txt`。
+- 前端依赖方案：`npm`。
+
+常用命令：
+
+```bash
+make install
+make dev
+make check
+```
+
+`make dev` 默认同时启动：
+
+- Vite: `http://127.0.0.1:5173`
+- FastAPI: `http://127.0.0.1:8000`
+- Health check: `http://127.0.0.1:8000/health`

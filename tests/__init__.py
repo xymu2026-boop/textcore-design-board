@@ -1,0 +1,1 @@
+"""TextCore test package."""

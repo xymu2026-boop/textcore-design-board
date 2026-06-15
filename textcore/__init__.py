@@ -1,0 +1,1 @@
+"""TextCore domain package placeholder."""

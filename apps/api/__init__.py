@@ -1,0 +1,1 @@
+"""TextCore API package placeholder."""

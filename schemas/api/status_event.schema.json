@@ -1,0 +1,21 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://textcore.local/schemas/api/status_event.schema.json",
+  "title": "TextCore API · Status Event (SSE)",
+  "description": "处理进度推送事件，前端进度条消费。GET /api/courses/{id}/events 的单条 SSE data。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["course_id", "stage", "stage_status"],
+  "properties": {
+    "course_id": { "type": "string" },
+    "stage": { "type": "string", "description": "S0..S10" },
+    "stage_label": { "type": "string", "description": "中文步骤名，如 解析 Word / 古文查证" },
+    "stage_status": { "type": "string", "enum": ["pending", "running", "done", "failed", "skipped"] },
+    "overall_status": { "type": "string", "enum": ["created", "processing", "completed", "failed", "needs_human"] },
+    "progress": { "type": "number", "minimum": 0, "maximum": 1, "description": "整体进度 0-1" },
+    "chunk_index": { "type": "integer", "minimum": 1, "description": "当前已完成的块序号，1-based，可选" },
+    "chunk_total": { "type": "integer", "minimum": 1, "description": "当前阶段总块数，可选" },
+    "message": { "type": "string" },
+    "ts": { "type": "string", "format": "date-time" }
+  }
+}
