@@ -1,30 +1,29 @@
-# INBOX · Codex · ③ 知识资产库聚合（后端聚合 API + 前端展示）
+# INBOX · Codex · ⑦ Word 导出精修（exporters，与批处理并行安全）
 
-> 分支 `pipeline-fusion`。碰 `textcore/`(新增聚合模块)、`apps/api/main.py`(新端点)、`apps/web/`(资产页)。**不动 schema(course_state)、不动 runner/流水线 stage**（后台批处理正在用流水线，勿碰）。**不提交 git**。结果写 OUTBOX，LOG 追加。
+> 分支 `pipeline-fusion`。碰 `textcore/exporters/docx_export.py` + 测试 + (可选)`apps/web` 导出弹窗文案。**不动 schema、runner、流水线 stage、deterministic、classics**（后台批处理在用）。**不提交 git**。结果写 OUTBOX，LOG 追加。
 
 ## 背景
-知识资产页目前只有入口+空态。现在批处理正在把 ~18 篇课的 knowledge_cards/writing_materials 写进各 course_state。本步做"跨课聚合"，把它们汇总成可浏览的资产库。
+Word 导出已能生成真实 docx(摘要+所选版本+卡片+素材+复核+古文)。本步精修排版与可读性，让妈妈打印/留档更好用。
 
-## 范围
-1. **后端聚合** `textcore/assets/aggregate.py`(新模块,纯函数):
-   - 读所有 course_state(经 repository 或扫 data/processed/*/course_state.json)。
-   - 汇总：
-     - 方法卡片库 = 所有 knowledge_cards，按 type 分组(method/person/event/concept/work/theme/mistake)，每条带来源 course_id+课程名。
-     - 佳句素材册 = 所有 writing_materials，带来源。
-     - 词汇生词本 = 暂用 knowledge_cards 里 type in (concept, work) 或文言字词类(没有专门字段就先用 concept)，带来源；无则空。
-   - 去重(同标题同来源合并)。
-2. **API** `apps/api/main.py` 新增 `GET /api/assets`：返回 `{cards:[...], materials:[...], vocab:[...]}`，每项含 source(course_id, course_title)。**不改 course_state schema**；这是只读聚合投影。
-3. **前端** `apps/web` 资产页：三个 Tab(方法卡片库/词汇生词本/佳句素材册)从 `GET /api/assets` 渲染真实聚合数据；空时友好空态；卡片点"来源课程"可跳详情。
+## 范围（只动 exporters + 测试 + 可选前端弹窗文案）
+1. **排版精修** `docx_export.py`：
+   - 标题层级清晰(课程名→章节→小节)，字号/段距合理。
+   - Markdown→docx 转换覆盖：## /###标题、- 列表、引用块、加粗。
+   - **古文块**：原文 / 译文 / 注释 / 赏析 / 来源 分层排版，原文可用引用样式。
+   - **复核标记**：灰色低干扰(不刺眼红)。
+   - 课程摘要、四档版本(按勾选)、知识卡片、作文素材分节，节间留白。
+   - printable(简洁可打印) vs archive(完整留档：多含复核明细/来源) 两版式差异更明确。
+2. **页眉/信息**：首页含课程名、讲师、来源文件、生成说明(可选)。
+3. (可选) `apps/web` 导出弹窗：勾选项文案、版式说明更清楚。
 
 ## 不做 / 边界
-- 不改 course_state schema、不动 textcore/pipeline/(runner/stages)、不动 deterministic 模块(批处理在用)。
-- 不引入硬编码假资产(数据全来自真实 course_state)。不提交 git。
-- 测试用 fixture/tmp 数据，**不要依赖 data/processed 实时内容**(批处理在写)。
+- 不改 course_state schema、不动 runner/pipeline stage/deterministic/classics(批处理在用)。
+- 用 fixture/已有 course_state 测试，不依赖 data/processed 实时内容。不提交 git。
 
 ## 验收
-- `make check` 全绿(新增聚合单测 + API 测试用 fixture)。
-- `GET /api/assets` 返回聚合结构；前端资产页能渲染(有数据时列出，空时空态)。
+- `make check` 全绿(导出单测：生成docx可被python-docx重开、含预期章节标题、勾选项生效、两版式有别)。
+- 手测：对一个 fixture course_state 导出，章节/古文块/复核样式合理。
 
 ## 完成后
-- `OUTBOX_CODEX.md`：聚合逻辑、API 形状、前端渲染、测试、make check 结果、遗留(如词汇本数据来源)。
-- `LOG.md` 追加：`[时间] CODEX: ③ 知识资产聚合 完成`。
+- `OUTBOX_CODEX.md`：排版改动、古文块/复核样式、两版式差异、测试、make check 结果。
+- `LOG.md` 追加：`[时间] CODEX: ⑦ Word导出精修 完成`。
